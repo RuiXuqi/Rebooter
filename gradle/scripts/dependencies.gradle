@@ -1,0 +1,110 @@
+apply from: 'gradle/scripts/helpers.gradle'
+
+repositories {
+    flatDir {
+        dirs('libs') // /libs
+    }
+    // Other repositories described by default:
+    // CleanroomMC: https://maven.cleanroommc.com
+    maven {
+        name = 'CurseMaven'
+        url = 'https://cursemaven.com'
+        content {
+            includeGroup 'curse.maven'
+        }
+    }
+    maven {
+        name = 'CleanroomCurseMaven'
+        url = 'https://curse.cleanroommc.com'
+        content {
+            includeGroup 'curse.maven'
+        }
+    }
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content {
+            includeGroup 'maven.modrinth'
+        }
+    }
+    maven {
+        name = 'Bawnorton Maven'
+        url = 'https://maven.bawnorton.com/releases'
+        content {
+            includeGroup 'com.github.bawnorton.mixinsquared'
+        }
+    }
+    mavenCentral()
+    mavenLocal() // Must be last for caching to work
+}
+
+dependencies {
+    def mixinSquared = 'com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.3'
+    shaded (mixinSquared) {
+        transitive = false
+    }
+    annotationProcessor (mixinSquared) {
+        transitive = false
+    }
+    // Include StripLatestForgeRequirements by default for the dev env, saves everyone a hassle
+    runtimeOnly 'com.cleanroommc:strip-latest-forge-requirements:1.0'
+    // Include OSXNarratorBlocker by default for the dev env, for M1+ Macs
+    runtimeOnly 'com.cleanroommc:osxnarratorblocker:1.0'
+
+    // Example - Dependency descriptor:
+    // 'com.google.code.gson:gson:2.8.6' << group: com.google.code.gson, name:gson, version:2.8.6
+    // 'group:name:version:classifier' where classifier is optional
+
+    // Example - Deobfuscating dependencies:
+    // rfg.deobf('curse.maven:had-enough-items-557549:4543375')
+    // By wrapping a dependency descriptor in rfg.deobf() method call, the dependency is queued for deobfuscation
+    // When deobfuscating, RFG respects the mapping_channel + mapping_version stated in gradle.properties
+
+    // Example - Shading dependencies:
+    // Using the shadow plugin, by using the "shaded" configuration, the dependency will be shaded into your output jar
+    // shaded 'mezz:jei:4.31.2' << will shade HadEnoughItems 4.31.2 directly into your jar
+    // For more configuration options: see the bottom of this file and: https://gradleup.com/shadow/configuration/
+
+    // Example - CurseMaven dependencies:
+    // 'curse.maven:had-enough-items-557549:4543375' << had-enough-items = project slug, 557549 = project id, 4543375 = file id
+    // Full documentation: https://cursemaven.com/
+
+    // Example - Modrinth dependencies:
+    // 'maven.modrinth:jei:4.16.1.1000' << jei = project name, 4.16.1.1000 = file version
+    // Full documentation: https://docs.modrinth.com/docs/tutorials/maven/
+
+    // Example - Local dependencies:
+    // 'libs:ctm-1.2.1; << libs = folder name (/libs) in flatDir, ctm-1.2.1 = file name (ctm-1.2.1.jar)
+
+    // Common dependency types (configuration):
+    // implementation = dependency available at both compile time and runtime
+    // runtimeOnly = runtime dependency
+    // compileOnly = compile time dependency
+    // annotationProcessor = annotation processing dependencies
+    // shaded = includes dependency in output
+
+    // Transitive dependencies:
+    // (Dependencies that your dependency depends on)
+    // If you wish to exclude transitive dependencies in the described dependencies
+    // Use a closure as such:
+    // implementation ('com.google.code.gson:gson:2.8.6') {
+    //     transitive = false
+    // }
+}
+
+if (propertyBool('enable_shadow')) {
+    tasks.named("shadowJar").configure {
+        mergeServiceFiles()
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+        // Exclude specific parts of deps to keep your jar clean
+        // dependencies {
+        //     exclude 'META-INF/maven/**'
+        // }
+
+        // Relocate specific parts of deps, so multiple shaded classes in mods will not conflict
+        // relocate "mezz.jei", "shaded.mezz.jei"
+
+        // Remove unused classes automatically. May cause issues if they are accessed by reflection
+        // minimize()
+    }
+}

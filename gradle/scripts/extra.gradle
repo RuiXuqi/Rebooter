@@ -1,0 +1,76 @@
+// You may write any gradle buildscript component in this file
+// This file is automatically applied after build.gradle + dependencies.gradle is ran
+
+// If you wish to use the default helper methods, uncomment the line below
+// apply from: 'gradle/scripts/helpers.gradle'
+spotless {
+    enforceCheck false
+
+    java {
+        def packagePath = "${propertyString('mod_package')}".replace('.', '/')
+        target fileTree('src') {
+            include "*/java/${packagePath}/**/*.java"
+        }
+
+        leadingTabsToSpaces()
+        endWithNewline()
+        removeUnusedImports()
+    }
+}
+
+tasks.withType(Test).configureEach {
+    forkEvery = 1
+    maxParallelForks = 1
+}
+
+['runClient', 'runServer', 'runObfClient', 'runObfServer'].each { taskName ->
+    tasks.named(taskName).configure {
+        extraJvmArgs.add('-Drebooter.discoveryCache=false')
+    }
+}
+
+sourceSets {
+    testmod {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
+
+tasks.register('testmodJar', Jar) {
+    group = 'verification'
+    dependsOn tasks.named('testmodClasses')
+    archiveBaseName.set('rebooter-testmod')
+    from sourceSets.testmod.output
+    manifest {
+        attributes(
+                'FMLCorePlugin': 'testmod.TestModPlugin',
+                'FMLCorePluginContainsFMLMod': 'true',
+                'ForceLoadAsMod': 'true'
+        )
+    }
+}
+
+def testmodRunDirectories = [runClient: file('run')]
+if (providers.gradleProperty('withTestmod').isPresent()) {
+    testmodRunDirectories.runObfClient = file('run/obfuscated')
+}
+
+testmodRunDirectories.each { taskName, runDirectory ->
+    tasks.named(taskName).configure {
+        dependsOn tasks.named('testmodJar')
+        doFirst {
+            delete fileTree(new File(runDirectory, 'mods')) {
+                include 'rebooter-testmod-*.jar'
+            }
+            copy {
+                from tasks.named('testmodJar')
+                into new File(runDirectory, 'mods')
+            }
+            copy {
+                from file('src/testmod/config/rebooter')
+                from file('src/testmod/config/fixtures')
+                into new File(runDirectory, 'config')
+            }
+        }
+    }
+}
