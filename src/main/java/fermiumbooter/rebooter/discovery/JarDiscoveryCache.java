@@ -1,5 +1,6 @@
 package fermiumbooter.rebooter.discovery;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import fermiumbooter.rebooter.Reference;
 
@@ -174,18 +175,6 @@ final class JarDiscoveryCache {
                 }
             }
         }
-    }
-
-    static byte[] contentFingerprint(File source) throws IOException {
-        MessageDigest digest = sha256();
-        try (InputStream input = Files.newInputStream(source.toPath())) {
-            byte[] buffer = new byte[FINGERPRINT_BUFFER_SIZE];
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                digest.update(buffer, 0, read);
-            }
-        }
-        return digest.digest();
     }
 
     private static byte[] encode(Map<String, Entry> entries, byte[] scanProfileDigest) throws IOException {
@@ -680,5 +669,26 @@ final class JarDiscoveryCache {
         private int configResults;
         private int toggles;
         private int compatRules;
+    }
+
+    static final class ContentFingerprinter {
+        private final MessageDigest digest = sha256();
+        private final byte[] buffer = new byte[FINGERPRINT_BUFFER_SIZE];
+
+        byte[] fingerprint(File source) throws IOException {
+            this.digest.reset();
+            try (InputStream input = Files.newInputStream(source.toPath())) {
+                int read;
+                while ((read = input.read(this.buffer)) >= 0) {
+                    this.digest.update(this.buffer, 0, read);
+                }
+            }
+            return this.digest.digest();
+        }
+    }
+
+    @VisibleForTesting
+    static byte[] contentFingerprint(File source) throws IOException {
+        return new ContentFingerprinter().fingerprint(source);
     }
 }

@@ -146,6 +146,25 @@ class JarDiscoveryCacheTest {
     }
 
     @Test
+    void reusableFingerprinterResetsDigestBetweenFiles() throws Exception {
+        byte[] firstBytes = new byte[]{1, 2, 3};
+        byte[] secondBytes = new byte[]{4, 5, 6, 7};
+        Path first = Files.write(this.gameDirectory.resolve("first.jar"), firstBytes);
+        Path second = Files.write(this.gameDirectory.resolve("second.jar"), secondBytes);
+        JarDiscoveryCache.ContentFingerprinter fingerprinter = new JarDiscoveryCache.ContentFingerprinter();
+
+        assertArrayEquals(
+                MessageDigest.getInstance("SHA-256").digest(firstBytes),
+                fingerprinter.fingerprint(first.toFile()));
+        assertArrayEquals(
+                MessageDigest.getInstance("SHA-256").digest(secondBytes),
+                fingerprinter.fingerprint(second.toFile()));
+        assertArrayEquals(
+                MessageDigest.getInstance("SHA-256").digest(firstBytes),
+                fingerprinter.fingerprint(first.toFile()));
+    }
+
+    @Test
     void missingNestedConfigDataWithValidChecksumRejectsTheWholeCache() throws Exception {
         Path source = Files.write(this.gameDirectory.resolve("source.jar"), new byte[]{1, 2, 3});
         byte[] fingerprint = JarDiscoveryCache.contentFingerprint(source.toFile());

@@ -84,11 +84,21 @@ public final class JarDiscovery {
         JarDiscoveryCache cache = JarDiscoveryCache.load(
                 GameDirectory.resolve(), cacheProfile(scanAllowlist, mappings));
         statistics.cacheLoad(statistics.elapsed(cacheLoadStarted));
+        JarDiscoveryCache.ContentFingerprinter fingerprinter = new JarDiscoveryCache.ContentFingerprinter();
         long candidateStarted = statistics.start();
         Set<File> candidates = JarCollector.collect(GameDirectory.resolve());
         statistics.candidateCollection(statistics.elapsed(candidateStarted), candidates.size());
         for (File candidate : candidates) {
-            scanJar(candidate, mappings, scanAllowlist, mappedMods, discoveredMods, configResults, cache, statistics);
+            scanJar(
+                    candidate,
+                    mappings,
+                    scanAllowlist,
+                    mappedMods,
+                    discoveredMods,
+                    configResults,
+                    cache,
+                    fingerprinter,
+                    statistics);
         }
         long cacheSaveStarted = statistics.start();
         cache.save();
@@ -139,6 +149,7 @@ public final class JarDiscovery {
             Set<String> discoveredMods,
             List<ConfigReader.Result> configResults,
             JarDiscoveryCache cache,
+            JarDiscoveryCache.ContentFingerprinter fingerprinter,
             DiscoveryStatistics statistics) {
         JarDiscoveryCache.FileStamp initialStamp;
         byte[] fingerprint = null;
@@ -146,7 +157,7 @@ public final class JarDiscovery {
         try {
             initialStamp = JarDiscoveryCache.stamp(file);
             if (cache.hasLoadedEntry(file)) {
-                fingerprint = contentFingerprint(file, statistics);
+                fingerprint = contentFingerprint(file, fingerprinter, statistics);
                 cached = cache.lookup(file, initialStamp, fingerprint);
             }
         } catch (IOException e) {
@@ -246,7 +257,7 @@ public final class JarDiscovery {
                 return;
             }
             if (cache.isEnabled() && fingerprint == null) {
-                fingerprint = contentFingerprint(file, statistics);
+                fingerprint = contentFingerprint(file, fingerprinter, statistics);
                 if (!finalStamp.equals(JarDiscoveryCache.stamp(file))) {
                     Reference.LOGGER.warn("Discovery candidate changed while fingerprinting; ignoring {}", file);
                     return;
@@ -285,11 +296,12 @@ public final class JarDiscovery {
 
     private static byte[] contentFingerprint(
             File file,
+            JarDiscoveryCache.ContentFingerprinter fingerprinter,
             DiscoveryStatistics statistics) throws IOException {
         fingerprintReadCount++;
         long started = statistics.start();
         try {
-            return JarDiscoveryCache.contentFingerprint(file);
+            return fingerprinter.fingerprint(file);
         } finally {
             statistics.fingerprint(file, statistics.elapsed(started));
         }
