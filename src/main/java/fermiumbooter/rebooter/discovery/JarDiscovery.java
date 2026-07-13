@@ -18,6 +18,7 @@ import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
 public final class JarDiscovery {
+    private static final int LAUNCHER_DISCOVERY_VERSION = 1;
     private static final String OPTIFINE_TWEAKER = "optifine.OptiFineForgeTweaker";
     private static final Set<String> BUILTIN_MODS = new HashSet<>(Arrays.asList("minecraft", "mcp", "FML", "forge"));
     private static final Set<String> MAPPED_MODS = new HashSet<>();
@@ -30,6 +31,7 @@ public final class JarDiscovery {
     private static boolean indexed;
     private static boolean configsRegistered;
     private static int warningCount;
+    private static DiscoveryStatistics statistics;
 
     private JarDiscovery() {
     }
@@ -38,6 +40,8 @@ public final class JarDiscovery {
         indexOnce();
         if (configsRegistered) return;
         configsRegistered = true;
+        long configStarted = statistics.start();
+        int resultCount = CONFIG_RESULTS.size();
         for (ConfigReader.Result result : CONFIG_RESULTS) {
             for (ConfigReader.Toggle toggle : result.toggles()) {
                 boolean enabled = ForgeConfigAccess.findBoolean(GameDirectory.resolve(), result.configName(),
@@ -50,6 +54,8 @@ public final class JarDiscovery {
             }
         }
         CONFIG_RESULTS.clear();
+        statistics.configCompat(statistics.elapsed(configStarted), resultCount);
+        statistics.logConfig();
     }
 
     public static synchronized boolean isModPresent(String modId) {
@@ -65,46 +71,43 @@ public final class JarDiscovery {
         ForgeConfigAccess.clearCompatibilityCache();
     }
 
-    @VisibleForTesting
-    public static synchronized void resetForTesting() {
-        indexed = false;
-        configsRegistered = false;
-        warningCount = 0;
-        prefilterScanCount = 0;
-        asmClassReadCount = 0;
-        enumeratedEntryCount = 0;
-        fingerprintReadCount = 0;
-        MAPPED_MODS.clear();
-        DISCOVERED_MODS.clear();
-        CONFIG_RESULTS.clear();
-        ForgeConfigAccess.clearCompatibilityCache();
-    }
-
     private static void indexOnce() {
         if (indexed) return;
         Stopwatch stopwatch = Stopwatch.createStarted();
+        statistics = new DiscoveryStatistics();
         Map<String, Set<String>> mappings = RebooterConfig.modDiscoveryPackageMappings();
         Set<String> scanAllowlist = RebooterConfig.discoveryClassScanAllowlist();
         Set<String> mappedMods = new HashSet<>();
         Set<String> discoveredMods = new HashSet<>();
         List<ConfigReader.Result> configResults = new ArrayList<>();
+        long cacheLoadStarted = statistics.start();
         JarDiscoveryCache cache = JarDiscoveryCache.load(
                 GameDirectory.resolve(), cacheProfile(scanAllowlist, mappings));
-        for (File candidate : JarCollector.collect(GameDirectory.resolve())) {
-            scanJar(candidate, mappings, scanAllowlist, mappedMods, discoveredMods, configResults, cache);
+        statistics.cacheLoad(statistics.elapsed(cacheLoadStarted));
+        long candidateStarted = statistics.start();
+        Set<File> candidates = JarCollector.collect(GameDirectory.resolve());
+        statistics.candidateCollection(statistics.elapsed(candidateStarted), candidates.size());
+        for (File candidate : candidates) {
+            scanJar(candidate, mappings, scanAllowlist, mappedMods, discoveredMods, configResults, cache, statistics);
         }
+        long cacheSaveStarted = statistics.start();
         cache.save();
+        statistics.cacheSave(statistics.elapsed(cacheSaveStarted));
         MAPPED_MODS.addAll(mappedMods);
         DISCOVERED_MODS.addAll(discoveredMods);
         CONFIG_RESULTS.addAll(configResults);
         indexed = true;
         Reference.LOGGER.info("ASM discovery completed in {} ms", stopwatch.elapsed(TimeUnit.MILLISECONDS));
+        statistics.logIndex();
     }
 
     @VisibleForTesting
     static String cacheProfile(Set<String> scanAllowlist, Map<String, Set<String>> mappings) {
         StringBuilder profile = new StringBuilder(DiscoveryClassFilter.cacheProfile(scanAllowlist));
         profile.append(ClassAnnotationScanner.cacheProfile());
+        profile.append(ClassMetadataReader.cacheProfile());
+        profile.append("launcher-discovery-v").append(LAUNCHER_DISCOVERY_VERSION).append('\n');
+        profile.append("manifest:TweakClass=").append(OPTIFINE_TWEAKER).append("=>optifine\n");
         profile.append("--package-mappings--\n");
         List<String> packages = new ArrayList<>(mappings.keySet());
         Collections.sort(packages);
@@ -135,14 +138,15 @@ public final class JarDiscovery {
             Set<String> mappedMods,
             Set<String> discoveredMods,
             List<ConfigReader.Result> configResults,
-            JarDiscoveryCache cache) {
+            JarDiscoveryCache cache,
+            DiscoveryStatistics statistics) {
         JarDiscoveryCache.FileStamp initialStamp;
         byte[] fingerprint = null;
         JarDiscoveryCache.CachedData cached = null;
         try {
             initialStamp = JarDiscoveryCache.stamp(file);
             if (cache.hasLoadedEntry(file)) {
-                fingerprint = contentFingerprint(file);
+                fingerprint = contentFingerprint(file, statistics);
                 cached = cache.lookup(file, initialStamp, fingerprint);
             }
         } catch (IOException e) {
@@ -150,12 +154,11 @@ public final class JarDiscovery {
             return;
         }
         if (cached != null) {
-            List<ConfigReader.Result> cachedResults = new ArrayList<>();
-            readCachedConfigs(file, cached.configClasses(), cachedResults);
+            statistics.cacheHit();
             try {
                 if (initialStamp.equals(JarDiscoveryCache.stamp(file))) {
                     restoreCachedIds(cached, mappedMods, discoveredMods);
-                    configResults.addAll(cachedResults);
+                    configResults.addAll(cached.configResults());
                     return;
                 }
             } catch (IOException e) {
@@ -164,35 +167,26 @@ public final class JarDiscovery {
             Reference.LOGGER.warn("Cached discovery candidate changed while being read; ignoring {}", file);
             return;
         }
+        statistics.cacheMiss();
         try (JarFile jar = new JarFile(file, false)) {
             Set<String> jarLauncherModIds = new HashSet<>();
+            boolean optiFine = false;
             try {
                 Manifest manifest = jar.getManifest();
                 if (manifest != null
                         && OPTIFINE_TWEAKER.equals(manifest.getMainAttributes().getValue("TweakClass"))) {
                     jarLauncherModIds.add("optifine");
+                    optiFine = true;
                 }
             } catch (IOException e) {
                 Reference.LOGGER.debug("Skipping unreadable manifest in {}", file, e);
             }
-            List<JarEntry> classes = new ArrayList<>();
-            JarEntry mcmodInfo = null;
             Set<String> jarFallbackMods = new HashSet<>();
-            Enumeration<JarEntry> entries = jar.entries();
-            while (entries.hasMoreElements()) {
-                JarEntry entry = entries.nextElement();
-                enumeratedEntryCount++;
-                String entryName = entry.getName();
-                if ("mcmod.info".equals(entryName)) mcmodInfo = entry;
-                for (Map.Entry<String, Set<String>> mapping : mappings.entrySet()) {
-                    if (entryName.startsWith(mapping.getKey())) jarFallbackMods.addAll(mapping.getValue());
-                }
-                if (DiscoveryClassFilter.isScannable(entry, scanAllowlist)) classes.add(entry);
-            }
             List<ConfigReader.Result> scannedResults = new ArrayList<>();
-            List<String> configClasses = new ArrayList<>();
             String jarMetadataModId = null;
             Set<String> jarAnnotationModIds = new HashSet<>();
+            long metadataStarted = statistics.start();
+            JarEntry mcmodInfo = jar.getJarEntry("mcmod.info");
             if (mcmodInfo != null) {
                 try (InputStream input = jar.getInputStream(mcmodInfo)) {
                     jarMetadataModId = JsonInfoReader.firstModId(input);
@@ -200,24 +194,48 @@ public final class JarDiscovery {
                     Reference.LOGGER.debug("Skipping unreadable mcmod.info in {}", file, e);
                 }
             }
-            ClassAnnotationScanner scanner = new ClassAnnotationScanner();
-            for (JarEntry entry : classes) {
+            statistics.metadata(statistics.elapsed(metadataStarted), mcmodInfo != null);
+            ClassAnnotationScanner scanner = optiFine ? null : new ClassAnnotationScanner();
+            Enumeration<JarEntry> entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                long entryStarted = statistics.start();
+                JarEntry entry = entries.nextElement();
+                enumeratedEntryCount++;
+                String entryName = entry.getName();
+                for (Map.Entry<String, Set<String>> mapping : mappings.entrySet()) {
+                    if (entryName.startsWith(mapping.getKey())) jarFallbackMods.addAll(mapping.getValue());
+                }
+                statistics.entryEnumeration(statistics.elapsed(entryStarted));
+                long classStarted = statistics.start();
+                if (optiFine || !DiscoveryClassFilter.isScannable(entry, scanAllowlist)) {
+                    statistics.classFilterAndPrefilter(statistics.elapsed(classStarted), false);
+                    continue;
+                }
                 prefilterScanCount++;
+                boolean prefilterTimingRecorded = false;
                 try (InputStream input = jar.getInputStream(entry)) {
                     ClassAnnotationScanner.ScanResult scan = scanner.scan(input, entry.getSize());
-                    if (!scan.isEmpty()) asmClassReadCount++;
-                    if (scan.has(ClassAnnotationScanner.MIXIN_CONFIG)) {
-                        ConfigReader.Result result = ConfigReader.scan(scan.classBytes());
-                        if (result != null) {
-                            scannedResults.add(result);
-                            configClasses.add(entry.getName());
-                        }
+                    long classNanos = statistics.elapsed(classStarted);
+                    statistics.classFilterAndPrefilter(
+                            Math.max(0L, classNanos - scan.fullClassReadNanos()),
+                            true);
+                    prefilterTimingRecorded = true;
+                    if (scan.isEmpty()) continue;
+                    asmClassReadCount++;
+                    long asmStarted = statistics.start();
+                    ClassMetadataReader.Metadata metadata;
+                    try {
+                        metadata = ClassMetadataReader.scan(scan.classBytes(), scan.flags());
+                    } finally {
+                        statistics.fullClassReadAndAsm(
+                                scan.fullClassReadNanos() + statistics.elapsed(asmStarted));
                     }
-                    if (scan.has(ClassAnnotationScanner.FORGE_MOD)) {
-                        String modId = ModAnnotationReader.scan(scan.classBytes());
-                        if (modId != null) jarAnnotationModIds.add(modId);
-                    }
+                    if (metadata.configResult() != null) scannedResults.add(metadata.configResult());
+                    if (metadata.modId() != null) jarAnnotationModIds.add(metadata.modId());
                 } catch (IOException | RuntimeException e) {
+                    if (!prefilterTimingRecorded) {
+                        statistics.classFilterAndPrefilter(statistics.elapsed(classStarted), true);
+                    }
                     Reference.LOGGER.debug("Skipping unreadable class '{}' in {}",
                             entry.getName(), file, e);
                 }
@@ -228,7 +246,7 @@ public final class JarDiscovery {
                 return;
             }
             if (cache.isEnabled() && fingerprint == null) {
-                fingerprint = contentFingerprint(file);
+                fingerprint = contentFingerprint(file, statistics);
                 if (!finalStamp.equals(JarDiscoveryCache.stamp(file))) {
                     Reference.LOGGER.warn("Discovery candidate changed while fingerprinting; ignoring {}", file);
                     return;
@@ -244,7 +262,7 @@ public final class JarDiscovery {
                         file,
                         finalStamp,
                         fingerprint,
-                        configClasses,
+                        scannedResults,
                         jarMetadataModId,
                         jarAnnotationModIds,
                         jarFallbackMods,
@@ -265,44 +283,36 @@ public final class JarDiscovery {
         discoveredMods.addAll(cached.launcherModIds());
     }
 
-    private static byte[] contentFingerprint(File file) throws IOException {
+    private static byte[] contentFingerprint(
+            File file,
+            DiscoveryStatistics statistics) throws IOException {
         fingerprintReadCount++;
-        return JarDiscoveryCache.contentFingerprint(file);
-    }
-
-    private static void readCachedConfigs(
-            File file,
-            List<String> cachedConfigClasses,
-            List<ConfigReader.Result> configResults) {
-        if (cachedConfigClasses.isEmpty()) return;
-        try (JarFile jar = new JarFile(file, false)) {
-            readCachedConfigs(jar, file, cachedConfigClasses, configResults);
-        } catch (IOException e) {
-            Reference.LOGGER.error("Failed to read cached discovery metadata in {}", file, e);
-        }
-    }
-
-    private static void readCachedConfigs(
-            JarFile jar,
-            File file,
-            List<String> cachedConfigClasses,
-            List<ConfigReader.Result> configResults) {
-        for (String className : cachedConfigClasses) {
-            JarEntry entry = jar.getJarEntry(className);
-            if (entry == null) return;
-            try (InputStream input = jar.getInputStream(entry)) {
-                ConfigReader.Result result = ConfigReader.scan(input);
-                if (result != null) configResults.add(result);
-            } catch (IOException | RuntimeException e) {
-                Reference.LOGGER.debug("Skipping unreadable cached config class '{}' in {}",
-                        className, file, e);
-            }
+        long started = statistics.start();
+        try {
+            return JarDiscoveryCache.contentFingerprint(file);
+        } finally {
+            statistics.fingerprint(file, statistics.elapsed(started));
         }
     }
 
     // TODO
     public static int getWarningCount() {
         return warningCount;
+    }
+
+    @VisibleForTesting
+    public static synchronized void resetForTesting() {
+        indexed = false;
+        configsRegistered = false;
+        warningCount = 0;
+        prefilterScanCount = 0;
+        asmClassReadCount = 0;
+        enumeratedEntryCount = 0;
+        fingerprintReadCount = 0;
+        MAPPED_MODS.clear();
+        DISCOVERED_MODS.clear();
+        CONFIG_RESULTS.clear();
+        ForgeConfigAccess.clearCompatibilityCache();
     }
 
     @VisibleForTesting

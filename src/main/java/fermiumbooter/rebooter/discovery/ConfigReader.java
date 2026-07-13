@@ -1,5 +1,6 @@
 package fermiumbooter.rebooter.discovery;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.objectweb.asm.*;
 
 import javax.annotation.Nullable;
@@ -10,6 +11,7 @@ import java.util.Collections;
 import java.util.List;
 
 final class ConfigReader {
+    private static final int RESULT_SCHEMA_VERSION = 1;
     static final String MIXIN_CONFIG = "Lfermiumbooter/annotations/MixinConfig;";
     private static final String CONFIG_NAME = "Lnet/minecraftforge/common/config/Config$Name;";
     private static final String MIXIN_TOGGLE = "Lfermiumbooter/annotations/MixinConfig$MixinToggle;";
@@ -17,35 +19,24 @@ final class ConfigReader {
     private String configName;
     private List<Toggle> toggles;
 
-    private ConfigReader() {
+    ConfigReader() {
+    }
+
+    static String cacheProfile() {
+        return "config-reader-result-v" + RESULT_SCHEMA_VERSION + '\n'
+                + MIXIN_CONFIG + '\n'
+                + CONFIG_NAME + '\n'
+                + MIXIN_TOGGLE + '\n'
+                + "toggle-defaults:early=;late=;enabled=false\n";
     }
 
     @Nullable
-    static Result scan(InputStream input) throws IOException {
-        return scan(new ClassReader(input));
-    }
-
-    @Nullable
-    static Result scan(byte[] classBytes) {
-        return scan(new ClassReader(classBytes));
-    }
-
-    @Nullable
-    private static Result scan(ClassReader classReader) {
-        ConfigReader reader = new ConfigReader();
-        classReader.accept(
-                reader.configClassVisitor(),
-                ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-        return reader.result();
-    }
-
-    @Nullable
-    private Result result() {
+    Result result() {
         return this.configName != null && !this.configName.isEmpty() && this.toggles != null
                 ? new Result(this.configName, this.toggles) : null;
     }
 
-    private ClassVisitor configClassVisitor() {
+    ClassVisitor configClassVisitor() {
         return new ClassVisitor(Opcodes.ASM5) {
             @Override
             public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
@@ -171,9 +162,9 @@ final class ConfigReader {
         private final String configName;
         private final List<Toggle> toggles;
 
-        private Result(String configName, List<Toggle> toggles) {
+        Result(String configName, List<Toggle> toggles) {
             this.configName = configName;
-            this.toggles = Collections.unmodifiableList(toggles);
+            this.toggles = Collections.unmodifiableList(new ArrayList<>(toggles));
         }
 
         String configName() {
@@ -192,7 +183,7 @@ final class ConfigReader {
         private final boolean defaultValue;
         private final List<CompatRule> compatibilityRules;
 
-        private Toggle(
+        Toggle(
                 String configFieldName,
                 String earlyMixinName,
                 String lateMixinName,
@@ -202,7 +193,7 @@ final class ConfigReader {
             this.earlyMixinName = earlyMixinName;
             this.lateMixinName = lateMixinName;
             this.defaultValue = defaultValue;
-            this.compatibilityRules = Collections.unmodifiableList(compatibilityRules);
+            this.compatibilityRules = Collections.unmodifiableList(new ArrayList<>(compatibilityRules));
         }
 
         String configFieldName() {
@@ -224,5 +215,26 @@ final class ConfigReader {
         List<CompatRule> compatibilityRules() {
             return this.compatibilityRules;
         }
+    }
+
+    @Nullable
+    @VisibleForTesting
+    static Result scan(InputStream input) throws IOException {
+        return scan(new ClassReader(input));
+    }
+
+    @Nullable
+    @VisibleForTesting
+    static Result scan(byte[] classBytes) {
+        return scan(new ClassReader(classBytes));
+    }
+
+    @Nullable
+    private static Result scan(ClassReader classReader) {
+        ConfigReader reader = new ConfigReader();
+        classReader.accept(
+                reader.configClassVisitor(),
+                ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        return reader.result();
     }
 }

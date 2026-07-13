@@ -4,6 +4,9 @@ import com.google.common.base.Stopwatch;
 import fermiumbooter.rebooter.Reference;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,15 +19,20 @@ import java.util.concurrent.TimeUnit;
 
 final class JarDiscoveryCache {
     private static final String ENABLED_PROPERTY = "rebooter.discoveryCache";
+    private static final int FINGERPRINT_BUFFER_SIZE = 64 * 1024;
     // RBTDISC Rebooter Discovery
     // Bump when format updated
-    private static final long MAGIC = 0x5242544449534302L;
+    private static final long MAGIC = 0x5242544449534303L;
     private static final int DIGEST_LENGTH = 32;
     private static final int MAX_FILE_SIZE = 16 * 1024 * 1024;
     private static final int MAX_PAYLOAD_SIZE = MAX_FILE_SIZE - 4096;
     private static final int MAX_JARS = 4096;
-    private static final int MAX_CONFIG_CLASSES_PER_JAR = 4096;
-    private static final int MAX_CONFIG_CLASSES_TOTAL = 100_000;
+    private static final int MAX_CONFIG_RESULTS_PER_JAR = 4096;
+    private static final int MAX_CONFIG_RESULTS_TOTAL = 100_000;
+    private static final int MAX_TOGGLES_PER_CONFIG = 4096;
+    private static final int MAX_TOGGLES_TOTAL = 300_000;
+    private static final int MAX_COMPAT_RULES_PER_TOGGLE = 4096;
+    private static final int MAX_COMPAT_RULES_TOTAL = 300_000;
     private static final int MAX_MOD_IDS_PER_JAR = 4096;
     private static final int MAX_MOD_IDS_TOTAL = 300_000;
     private static final int MAX_STRING_BYTES = 65_535;
@@ -116,7 +124,7 @@ final class JarDiscoveryCache {
             File source,
             FileStamp stamp,
             byte[] fingerprint,
-            List<String> configClasses,
+            List<ConfigReader.Result> configResults,
             String metadataModId,
             Set<String> annotationModIds,
             Set<String> mappedModIds,
@@ -126,7 +134,7 @@ final class JarDiscoveryCache {
         this.current.put(path, new Entry(
                 stamp,
                 fingerprint.clone(),
-                immutable(configClasses),
+                immutable(configResults),
                 metadataModId,
                 immutableSorted(annotationModIds),
                 immutableSorted(mappedModIds),
@@ -171,7 +179,7 @@ final class JarDiscoveryCache {
     static byte[] contentFingerprint(File source) throws IOException {
         MessageDigest digest = sha256();
         try (InputStream input = Files.newInputStream(source.toPath())) {
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[FINGERPRINT_BUFFER_SIZE];
             int read;
             while ((read = input.read(buffer)) >= 0) {
                 digest.update(buffer, 0, read);
@@ -182,18 +190,10 @@ final class JarDiscoveryCache {
 
     private static byte[] encode(Map<String, Entry> entries, byte[] scanProfileDigest) throws IOException {
         checkCount(entries.size(), MAX_JARS, "JAR count");
-        int totalConfigClasses = 0;
+        NestedCounts nestedCounts = new NestedCounts();
         int totalModIds = 0;
         for (Entry entry : entries.values()) {
-            checkCount(
-                    entry.configClasses.size(),
-                    MAX_CONFIG_CLASSES_PER_JAR,
-                    "config class count");
-            totalConfigClasses = checkedTotal(
-                    totalConfigClasses,
-                    entry.configClasses.size(),
-                    MAX_CONFIG_CLASSES_TOTAL,
-                    "total config class count");
+            validateConfigResults(entry.configResults, nestedCounts);
             totalModIds = checkModIds(entry.annotationModIds, totalModIds, "annotation mod ID");
             totalModIds = checkModIds(entry.mappedModIds, totalModIds, "mapped mod ID");
             totalModIds = checkModIds(entry.launcherModIds, totalModIds, "launcher mod ID");
@@ -210,7 +210,7 @@ final class JarDiscoveryCache {
                 writeString(payload, entry.stamp.fileKey);
                 payload.write(entry.fingerprint);
                 writeString(payload, entry.metadataModId == null ? "" : entry.metadataModId);
-                writeStrings(payload, entry.configClasses);
+                writeConfigResults(payload, entry.configResults);
                 writeStrings(payload, entry.annotationModIds);
                 writeStrings(payload, entry.mappedModIds);
                 writeStrings(payload, entry.launcherModIds);
@@ -264,7 +264,7 @@ final class JarDiscoveryCache {
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload))) {
             int entryCount = readCount(input, MAX_JARS, "JAR count");
             Map<String, Entry> entries = new LinkedHashMap<>();
-            int totalConfigClasses = 0;
+            NestedCounts nestedCounts = new NestedCounts();
             int totalModIds = 0;
             for (int index = 0; index < entryCount; index++) {
                 String path = readString(input);
@@ -277,16 +277,7 @@ final class JarDiscoveryCache {
                 input.readFully(fingerprint);
                 String metadataModId = readString(input);
                 if (metadataModId.isEmpty()) metadataModId = null;
-                int classCount = readCount(input, MAX_CONFIG_CLASSES_PER_JAR, "config class count");
-                totalConfigClasses = checkedTotal(
-                        totalConfigClasses,
-                        classCount,
-                        MAX_CONFIG_CLASSES_TOTAL,
-                        "total config class count");
-                List<String> configClasses = new ArrayList<>(classCount);
-                for (int classIndex = 0; classIndex < classCount; classIndex++) {
-                    configClasses.add(readString(input));
-                }
+                List<ConfigReader.Result> configResults = readConfigResults(input, nestedCounts);
                 List<String> annotationModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "annotation mod ID count");
                 totalModIds = checkedTotal(totalModIds, annotationModIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
                 List<String> mappedModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "mapped mod ID count");
@@ -296,7 +287,7 @@ final class JarDiscoveryCache {
                 if (entries.put(path, new Entry(
                         stamp,
                         fingerprint,
-                        immutable(configClasses),
+                        immutable(configResults),
                         metadataModId,
                         immutable(annotationModIds),
                         immutable(mappedModIds),
@@ -313,7 +304,7 @@ final class JarDiscoveryCache {
         }
     }
 
-    private static List<String> immutable(List<String> values) {
+    private static <T> List<T> immutable(List<T> values) {
         return values.isEmpty()
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(new ArrayList<>(values));
@@ -323,6 +314,122 @@ final class JarDiscoveryCache {
         List<String> sorted = new ArrayList<>(values);
         Collections.sort(sorted);
         return immutable(sorted);
+    }
+
+    private static void validateConfigResults(
+            List<ConfigReader.Result> results,
+            NestedCounts counts) throws IOException {
+        checkCount(results.size(), MAX_CONFIG_RESULTS_PER_JAR, "config result count");
+        counts.configResults = checkedTotal(
+                counts.configResults,
+                results.size(),
+                MAX_CONFIG_RESULTS_TOTAL,
+                "total config result count");
+        for (ConfigReader.Result result : results) {
+            checkNonEmptyString(result.configName(), "config name");
+            List<ConfigReader.Toggle> toggles = result.toggles();
+            checkCount(toggles.size(), MAX_TOGGLES_PER_CONFIG, "config toggle count");
+            if (toggles.isEmpty()) throw new IOException("config result has no toggles");
+            counts.toggles = checkedTotal(
+                    counts.toggles,
+                    toggles.size(),
+                    MAX_TOGGLES_TOTAL,
+                    "total config toggle count");
+            for (ConfigReader.Toggle toggle : toggles) {
+                checkNonEmptyString(toggle.configFieldName(), "config field name");
+                checkString(toggle.earlyMixinName());
+                checkString(toggle.lateMixinName());
+                List<CompatRule> rules = toggle.compatibilityRules();
+                checkCount(rules.size(), MAX_COMPAT_RULES_PER_TOGGLE, "compat rule count");
+                counts.compatRules = checkedTotal(
+                        counts.compatRules,
+                        rules.size(),
+                        MAX_COMPAT_RULES_TOTAL,
+                        "total compat rule count");
+                for (CompatRule rule : rules) {
+                    checkString(rule.modid());
+                    checkString(rule.reason());
+                }
+            }
+        }
+    }
+
+    private static void writeConfigResults(
+            DataOutputStream output,
+            List<ConfigReader.Result> results) throws IOException {
+        output.writeInt(results.size());
+        for (ConfigReader.Result result : results) {
+            writeString(output, result.configName());
+            output.writeInt(result.toggles().size());
+            for (ConfigReader.Toggle toggle : result.toggles()) {
+                writeString(output, toggle.configFieldName());
+                writeString(output, toggle.earlyMixinName());
+                writeString(output, toggle.lateMixinName());
+                output.writeBoolean(toggle.defaultValue());
+                output.writeInt(toggle.compatibilityRules().size());
+                for (CompatRule rule : toggle.compatibilityRules()) {
+                    writeString(output, rule.modid());
+                    output.writeBoolean(rule.desired());
+                    output.writeBoolean(rule.disableMixin());
+                    output.writeBoolean(rule.warnIngame());
+                    writeString(output, rule.reason());
+                }
+            }
+        }
+    }
+
+    private static List<ConfigReader.Result> readConfigResults(
+            DataInputStream input,
+            NestedCounts counts) throws IOException {
+        int resultCount = readCount(input, MAX_CONFIG_RESULTS_PER_JAR, "config result count");
+        counts.configResults = checkedTotal(
+                counts.configResults,
+                resultCount,
+                MAX_CONFIG_RESULTS_TOTAL,
+                "total config result count");
+        List<ConfigReader.Result> results = new ArrayList<>(resultCount);
+        for (int resultIndex = 0; resultIndex < resultCount; resultIndex++) {
+            String configName = readString(input);
+            checkNonEmptyString(configName, "config name");
+            int toggleCount = readCount(input, MAX_TOGGLES_PER_CONFIG, "config toggle count");
+            if (toggleCount == 0) throw new IOException("config result has no toggles");
+            counts.toggles = checkedTotal(
+                    counts.toggles,
+                    toggleCount,
+                    MAX_TOGGLES_TOTAL,
+                    "total config toggle count");
+            List<ConfigReader.Toggle> toggles = new ArrayList<>(toggleCount);
+            for (int toggleIndex = 0; toggleIndex < toggleCount; toggleIndex++) {
+                String fieldName = readString(input);
+                checkNonEmptyString(fieldName, "config field name");
+                String earlyMixin = readString(input);
+                String lateMixin = readString(input);
+                boolean defaultValue = input.readBoolean();
+                int ruleCount = readCount(input, MAX_COMPAT_RULES_PER_TOGGLE, "compat rule count");
+                counts.compatRules = checkedTotal(
+                        counts.compatRules,
+                        ruleCount,
+                        MAX_COMPAT_RULES_TOTAL,
+                        "total compat rule count");
+                List<CompatRule> rules = new ArrayList<>(ruleCount);
+                for (int ruleIndex = 0; ruleIndex < ruleCount; ruleIndex++) {
+                    rules.add(new CompatRule(
+                            readString(input),
+                            input.readBoolean(),
+                            input.readBoolean(),
+                            input.readBoolean(),
+                            readString(input)));
+                }
+                toggles.add(new ConfigReader.Toggle(
+                        fieldName,
+                        earlyMixin,
+                        lateMixin,
+                        defaultValue,
+                        rules));
+            }
+            results.add(new ConfigReader.Result(configName, toggles));
+        }
+        return results;
     }
 
     private static int checkModIds(List<String> modIds, int total, String description) throws IOException {
@@ -349,11 +456,29 @@ final class JarDiscoveryCache {
         output.write(bytes);
     }
 
+    private static void checkString(String value) throws IOException {
+        if (value == null) throw new IOException("cache string is null");
+        checkCount(value.getBytes(StandardCharsets.UTF_8).length, MAX_STRING_BYTES, "string length");
+    }
+
+    private static void checkNonEmptyString(String value, String description) throws IOException {
+        checkString(value);
+        if (value.isEmpty()) throw new IOException(description + " is empty");
+    }
+
     private static String readString(DataInputStream input) throws IOException {
         int length = readCount(input, MAX_STRING_BYTES, "string length");
         byte[] bytes = new byte[length];
         input.readFully(bytes);
-        return new String(bytes, StandardCharsets.UTF_8);
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException e) {
+            throw new IOException("cache string is not valid UTF-8", e);
+        }
     }
 
     private static int readCount(DataInputStream input, int maximum, String description) throws IOException {
@@ -399,27 +524,27 @@ final class JarDiscoveryCache {
     }
 
     static final class CachedData {
-        private final List<String> configClasses;
+        private final List<ConfigReader.Result> configResults;
         private final String metadataModId;
         private final List<String> annotationModIds;
         private final List<String> mappedModIds;
         private final List<String> launcherModIds;
 
         private CachedData(
-                List<String> configClasses,
+                List<ConfigReader.Result> configResults,
                 String metadataModId,
                 List<String> annotationModIds,
                 List<String> mappedModIds,
                 List<String> launcherModIds) {
-            this.configClasses = configClasses;
+            this.configResults = configResults;
             this.metadataModId = metadataModId;
             this.annotationModIds = annotationModIds;
             this.mappedModIds = mappedModIds;
             this.launcherModIds = launcherModIds;
         }
 
-        List<String> configClasses() {
-            return this.configClasses;
+        List<ConfigReader.Result> configResults() {
+            return this.configResults;
         }
 
         String metadataModId() {
@@ -476,7 +601,7 @@ final class JarDiscoveryCache {
     private static final class Entry {
         private final FileStamp stamp;
         private final byte[] fingerprint;
-        private final List<String> configClasses;
+        private final List<ConfigReader.Result> configResults;
         private final String metadataModId;
         private final List<String> annotationModIds;
         private final List<String> mappedModIds;
@@ -486,20 +611,20 @@ final class JarDiscoveryCache {
         private Entry(
                 FileStamp stamp,
                 byte[] fingerprint,
-                List<String> configClasses,
+                List<ConfigReader.Result> configResults,
                 String metadataModId,
                 List<String> annotationModIds,
                 List<String> mappedModIds,
                 List<String> launcherModIds) {
             this.stamp = stamp;
             this.fingerprint = fingerprint;
-            this.configClasses = configClasses;
+            this.configResults = configResults;
             this.metadataModId = metadataModId;
             this.annotationModIds = annotationModIds;
             this.mappedModIds = mappedModIds;
             this.launcherModIds = launcherModIds;
             this.data = new CachedData(
-                    configClasses, metadataModId, annotationModIds, mappedModIds, launcherModIds);
+                    configResults, metadataModId, annotationModIds, mappedModIds, launcherModIds);
         }
 
         private Entry withStamp(FileStamp stamp) {
@@ -507,7 +632,7 @@ final class JarDiscoveryCache {
             return new Entry(
                     stamp,
                     this.fingerprint,
-                    this.configClasses,
+                    this.configResults,
                     this.metadataModId,
                     this.annotationModIds,
                     this.mappedModIds,
@@ -549,5 +674,11 @@ final class JarDiscoveryCache {
         private CacheSizeException() {
             super("cache payload exceeds the accepted size", null, false, false);
         }
+    }
+
+    private static final class NestedCounts {
+        private int configResults;
+        private int toggles;
+        private int compatRules;
     }
 }

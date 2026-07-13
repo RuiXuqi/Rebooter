@@ -1,5 +1,7 @@
 package fermiumbooter.rebooter.discovery;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -23,10 +25,6 @@ final class ClassAnnotationScanner {
         return "class-annotation-scanner-v" + SCANNER_VERSION + '\n'
                 + ConfigReader.MIXIN_CONFIG + '\n'
                 + FORGE_MOD_DESCRIPTOR + '\n';
-    }
-
-    ScanResult scan(InputStream input) throws IOException {
-        return this.scan(input, -1);
     }
 
     ScanResult scan(InputStream input, long classSize) throws IOException {
@@ -82,7 +80,10 @@ final class ClassAnnotationScanner {
                         return ScanResult.empty();
                 }
             }
-            return flags == 0 ? ScanResult.empty() : new ScanResult(flags, this.completeClass(input, classSize));
+            if (flags == 0) return ScanResult.empty();
+            long fullReadStarted = System.nanoTime();
+            byte[] classBytes = this.completeClass(input, classSize);
+            return new ScanResult(flags, classBytes, System.nanoTime() - fullReadStarted);
         } finally {
             this.input = null;
         }
@@ -173,29 +174,45 @@ final class ClassAnnotationScanner {
     }
 
     static final class ScanResult {
-        private static final ScanResult EMPTY = new ScanResult(0, null);
+        private static final ScanResult EMPTY = new ScanResult(0, null, 0L);
         private final int flags;
         private final byte[] classBytes;
+        private final long fullClassReadNanos;
 
-        private ScanResult(int flags, byte[] classBytes) {
+        private ScanResult(int flags, byte[] classBytes, long fullClassReadNanos) {
             this.flags = flags;
             this.classBytes = classBytes;
+            this.fullClassReadNanos = fullClassReadNanos;
         }
 
         private static ScanResult empty() {
             return EMPTY;
         }
 
-        boolean has(int flag) {
-            return (this.flags & flag) != 0;
-        }
-
         boolean isEmpty() {
             return this.flags == 0;
+        }
+
+        int flags() {
+            return this.flags;
         }
 
         byte[] classBytes() {
             return this.classBytes;
         }
+
+        long fullClassReadNanos() {
+            return this.fullClassReadNanos;
+        }
+
+        @VisibleForTesting
+        boolean has(int flag) {
+            return (this.flags & flag) != 0;
+        }
+    }
+
+    @VisibleForTesting
+    ScanResult scan(InputStream input) throws IOException {
+        return this.scan(input, -1);
     }
 }

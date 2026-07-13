@@ -6,10 +6,19 @@ import org.objectweb.asm.Opcodes;
 import java.util.*;
 
 final class CompatAnnotationReader {
+    private static final int RESULT_SCHEMA_VERSION = 1;
     private static final String COMPAT_HANDLING = "Lfermiumbooter/annotations/MixinConfig$CompatHandling;";
     private static final String COMPAT_HANDLING_CONTAINER = "Lfermiumbooter/annotations/MixinConfig$CompatHandlingContainer;";
     private static final String COMPAT_HANDLINGS = "Lfermiumbooter/annotations/MixinConfig$CompatHandlings;";
     private final Map<String, List<CompatRule>> rulesByField = new HashMap<>();
+
+    static String cacheProfile() {
+        return "compat-reader-result-v" + RESULT_SCHEMA_VERSION + '\n'
+                + COMPAT_HANDLING + '\n'
+                + COMPAT_HANDLING_CONTAINER + '\n'
+                + COMPAT_HANDLINGS + '\n'
+                + "defaults:modid=;desired=true;disable=true;warn=true;reason=\n";
+    }
 
     AnnotationVisitor visit(String fieldName, String descriptor) {
         if (COMPAT_HANDLING.equals(descriptor)) {

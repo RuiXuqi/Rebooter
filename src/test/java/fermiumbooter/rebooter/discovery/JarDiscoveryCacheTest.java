@@ -10,11 +10,13 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
+import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Objects;
@@ -55,7 +57,10 @@ class JarDiscoveryCacheTest {
         assertTrue(contains(Files.readAllBytes(cache), Reference.VERSION.getBytes(StandardCharsets.UTF_8)));
         assertTrue(contains(
                 Files.readAllBytes(cache),
-                classResource(CachedConfig.class).getBytes(StandardCharsets.UTF_8)));
+                "cache-fixture".getBytes(StandardCharsets.UTF_8)));
+        assertTrue(contains(
+                Files.readAllBytes(cache),
+                "mixins.cache-fixture.json".getBytes(StandardCharsets.UTF_8)));
 
         JarDiscovery.resetForTesting();
         JarDiscovery.registerConfigs();
@@ -110,6 +115,80 @@ class JarDiscoveryCacheTest {
         JarDiscovery.registerConfigs();
 
         assertTrue(JarDiscovery.getPrefilterScanCount() > 0);
+    }
+
+    @Test
+    void completeConfigResultRoundTripsThroughCache() throws Exception {
+        Path source = Files.write(this.gameDirectory.resolve("source.jar"), new byte[]{1, 2, 3});
+        byte[] fingerprint = JarDiscoveryCache.contentFingerprint(source.toFile());
+        JarDiscoveryCache first = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+        first.record(
+                source.toFile(),
+                JarDiscoveryCache.stamp(source.toFile()),
+                fingerprint,
+                Collections.singletonList(cachedResult()),
+                "metadata_mod",
+                Collections.singleton("annotation_mod"),
+                Collections.singleton("mapped_mod"),
+                Collections.singleton("launcher_mod"));
+        first.save();
+
+        JarDiscoveryCache reloaded = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+        JarDiscoveryCache.CachedData cached = reloaded.lookup(
+                source.toFile(), JarDiscoveryCache.stamp(source.toFile()), fingerprint);
+
+        assertNotNull(cached);
+        assertEquals("metadata_mod", cached.metadataModId());
+        assertEquals(Collections.singletonList("annotation_mod"), cached.annotationModIds());
+        assertEquals(Collections.singletonList("mapped_mod"), cached.mappedModIds());
+        assertEquals(Collections.singletonList("launcher_mod"), cached.launcherModIds());
+        assertCachedResult(cached.configResults().get(0));
+    }
+
+    @Test
+    void missingNestedConfigDataWithValidChecksumRejectsTheWholeCache() throws Exception {
+        Path source = Files.write(this.gameDirectory.resolve("source.jar"), new byte[]{1, 2, 3});
+        byte[] fingerprint = JarDiscoveryCache.contentFingerprint(source.toFile());
+        JarDiscoveryCache first = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+        first.record(
+                source.toFile(),
+                JarDiscoveryCache.stamp(source.toFile()),
+                fingerprint,
+                Collections.singletonList(cachedResult()),
+                "must_not_restore",
+                Collections.singleton("must_not_restore"),
+                Collections.singleton("must_not_restore"),
+                Collections.singleton("must_not_restore"));
+        first.save();
+        removeToggleDataAndRefreshChecksum(cacheFile());
+
+        JarDiscoveryCache reloaded = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+
+        assertNull(reloaded.lookup(
+                source.toFile(), JarDiscoveryCache.stamp(source.toFile()), fingerprint));
+    }
+
+    @Test
+    void invalidUtf8WithValidChecksumRejectsTheWholeCache() throws Exception {
+        Path source = Files.write(this.gameDirectory.resolve("source.jar"), new byte[]{1, 2, 3});
+        byte[] fingerprint = JarDiscoveryCache.contentFingerprint(source.toFile());
+        JarDiscoveryCache first = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+        first.record(
+                source.toFile(),
+                JarDiscoveryCache.stamp(source.toFile()),
+                fingerprint,
+                Collections.singletonList(cachedResult()),
+                "must_not_restore",
+                Collections.singleton("must_not_restore"),
+                Collections.singleton("must_not_restore"),
+                Collections.singleton("must_not_restore"));
+        first.save();
+        corruptConfigNameUtf8AndRefreshChecksum(cacheFile());
+
+        JarDiscoveryCache reloaded = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+
+        assertNull(reloaded.lookup(
+                source.toFile(), JarDiscoveryCache.stamp(source.toFile()), fingerprint));
     }
 
     @Test
@@ -223,7 +302,7 @@ class JarDiscoveryCacheTest {
                 source.toFile(),
                 JarDiscoveryCache.stamp(source.toFile()),
                 fingerprint,
-                Collections.singletonList("example/Config.class"),
+                Collections.singletonList(cachedResult()),
                 null,
                 Collections.emptySet(),
                 Collections.emptySet(),
@@ -247,7 +326,7 @@ class JarDiscoveryCacheTest {
                 source.toFile(),
                 JarDiscoveryCache.stamp(source.toFile()),
                 fingerprint,
-                Collections.singletonList("example/Config.class"),
+                Collections.singletonList(cachedResult()),
                 null,
                 Collections.emptySet(),
                 Collections.emptySet(),
@@ -286,7 +365,7 @@ class JarDiscoveryCacheTest {
                 jar.toFile(),
                 stamp,
                 fingerprint,
-                Collections.singletonList(classResource(CachedConfig.class)),
+                Collections.emptyList(),
                 null,
                 Collections.emptySet(),
                 Collections.emptySet(),
@@ -338,6 +417,108 @@ class JarDiscoveryCacheTest {
 
     private static String classResource(Class<?> type) {
         return type.getName().replace('.', '/') + ".class";
+    }
+
+    private static ConfigReader.Result cachedResult() {
+        return new ConfigReader.Result(
+                "cached-config",
+                Collections.singletonList(new ConfigReader.Toggle(
+                        "Enabled Field",
+                        "mixins.cached.early.json",
+                        "mixins.cached.late.json",
+                        true,
+                        Collections.singletonList(new CompatRule(
+                                "cached_mod",
+                                false,
+                                false,
+                                true,
+                                "cached reason")))));
+    }
+
+    private static void assertCachedResult(ConfigReader.Result result) {
+        assertEquals("cached-config", result.configName());
+        assertEquals(1, result.toggles().size());
+        ConfigReader.Toggle toggle = result.toggles().get(0);
+        assertEquals("Enabled Field", toggle.configFieldName());
+        assertEquals("mixins.cached.early.json", toggle.earlyMixinName());
+        assertEquals("mixins.cached.late.json", toggle.lateMixinName());
+        assertTrue(toggle.defaultValue());
+        assertEquals(1, toggle.compatibilityRules().size());
+        CompatRule rule = toggle.compatibilityRules().get(0);
+        assertEquals("cached_mod", rule.modid());
+        assertFalse(rule.desired());
+        assertFalse(rule.disableMixin());
+        assertTrue(rule.warnIngame());
+        assertEquals("cached reason", rule.reason());
+    }
+
+    private static void removeToggleDataAndRefreshChecksum(Path cache) throws Exception {
+        byte[] bytes = Files.readAllBytes(cache);
+        ByteBuffer header = ByteBuffer.wrap(bytes);
+        header.getLong();
+        int versionLength = header.getInt();
+        header.position(header.position() + versionLength + 32);
+        int payloadLengthOffset = header.position();
+        int payloadLength = header.getInt();
+        byte[] configName = "cached-config".getBytes(StandardCharsets.UTF_8);
+        int configNameOffset = indexOf(bytes, configName);
+        assertTrue(configNameOffset >= header.position() + 32);
+        int toggleCountOffset = configNameOffset + configName.length;
+        ByteBuffer payload = ByteBuffer.wrap(bytes);
+        payload.position(toggleCountOffset);
+        assertEquals(1, payload.getInt());
+        int toggleDataOffset = payload.position();
+        skipString(payload);
+        skipString(payload);
+        skipString(payload);
+        payload.get();
+        int ruleCount = payload.getInt();
+        for (int index = 0; index < ruleCount; index++) {
+            skipString(payload);
+            payload.position(payload.position() + 3);
+            skipString(payload);
+        }
+        int toggleDataEnd = payload.position();
+        int removedBytes = toggleDataEnd - toggleDataOffset;
+        byte[] shortened = new byte[bytes.length - removedBytes];
+        System.arraycopy(bytes, 0, shortened, 0, toggleDataOffset);
+        System.arraycopy(
+                bytes,
+                toggleDataEnd,
+                shortened,
+                toggleDataOffset,
+                bytes.length - toggleDataEnd);
+        ByteBuffer.wrap(shortened).putInt(toggleCountOffset, 0);
+        ByteBuffer.wrap(shortened).putInt(payloadLengthOffset, payloadLength - removedBytes);
+        refreshChecksum(shortened);
+        Files.write(cache, shortened);
+    }
+
+    private static void corruptConfigNameUtf8AndRefreshChecksum(Path cache) throws Exception {
+        byte[] bytes = Files.readAllBytes(cache);
+        int configNameOffset = indexOf(bytes, "cached-config".getBytes(StandardCharsets.UTF_8));
+        assertTrue(configNameOffset >= 0);
+        bytes[configNameOffset] = (byte) 0xC0;
+        refreshChecksum(bytes);
+        Files.write(cache, bytes);
+    }
+
+    private static void refreshChecksum(byte[] bytes) throws Exception {
+        ByteBuffer header = ByteBuffer.wrap(bytes);
+        header.getLong();
+        int versionLength = header.getInt();
+        header.position(header.position() + versionLength + 32);
+        int payloadLength = header.getInt();
+        int checksumOffset = header.position();
+        int payloadOffset = checksumOffset + 32;
+        byte[] checksum = MessageDigest.getInstance("SHA-256")
+                .digest(Arrays.copyOfRange(bytes, payloadOffset, payloadOffset + payloadLength));
+        System.arraycopy(checksum, 0, bytes, checksumOffset, checksum.length);
+    }
+
+    private static void skipString(ByteBuffer buffer) {
+        int length = buffer.getInt();
+        buffer.position(buffer.position() + length);
     }
 
     private Path cacheFile() {

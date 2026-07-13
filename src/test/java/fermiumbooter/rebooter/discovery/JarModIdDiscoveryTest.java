@@ -10,8 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.Opcodes;
 
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -77,10 +79,29 @@ class JarModIdDiscoveryTest {
         manifest.getMainAttributes().putValue("Manifest-Version", "1.0");
         manifest.getMainAttributes().putValue("TweakClass", "optifine.OptiFineForgeTweaker");
         Path jar = Files.createDirectories(this.gameDirectory.resolve("mods")).resolve("OptiFine.jar");
-        try (JarOutputStream ignored = new JarOutputStream(Files.newOutputStream(jar), manifest)) {
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar), manifest)) {
+            addEntry(output, "fixture/IgnoredMod.class", modClass("fixture/IgnoredMod", "ignored_optifine_mod"));
         }
 
         assertTrue(FermiumRegistryAPI.isModPresent("OptiFine"));
+        assertFalse(FermiumRegistryAPI.isModPresent("ignored_optifine_mod"));
+        assertEquals(0, JarDiscovery.getPrefilterScanCount());
+        assertEquals(0, JarDiscovery.getAsmClassReadCount());
+    }
+
+    @Test
+    void oneAsmReadExtractsMixinConfigAndModMetadataTogether() throws Exception {
+        byte[] classBytes = modAndConfigClass("fixture/Combined", "combined_mod");
+        ClassAnnotationScanner.ScanResult prefiltered = new ClassAnnotationScanner()
+                .scan(new ByteArrayInputStream(classBytes), classBytes.length);
+
+        ClassMetadataReader.Metadata metadata = ClassMetadataReader.scan(
+                prefiltered.classBytes(), prefiltered.flags());
+
+        assertEquals("combined_mod", metadata.modId());
+        assertNotNull(metadata.configResult());
+        assertEquals("combined-config", metadata.configResult().configName());
+        assertEquals("mixins.combined.json", metadata.configResult().toggles().get(0).earlyMixinName());
     }
 
     @Test
@@ -113,17 +134,13 @@ class JarModIdDiscoveryTest {
     @Test
     void warmCacheRestoresMetadataAndAnnotationIdsWithoutEnumeratingTheJar() throws Exception {
         Path jar = Files.createDirectories(this.gameDirectory.resolve("mods")).resolve("cached-mod-ids.jar");
-        Manifest manifest = new Manifest();
-        manifest.getMainAttributes().putValue("Manifest-Version", "1.0");
-        manifest.getMainAttributes().putValue("TweakClass", "optifine.OptiFineForgeTweaker");
-        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar), manifest)) {
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar))) {
             addEntry(output, "mcmod.info", "[{\"modid\":\"cached_metadata\"}]".getBytes(StandardCharsets.UTF_8));
             addEntry(output, "fixture/CachedMod.class", modClass("fixture/CachedMod", "cached_annotation"));
             addEntry(output, "git/jbredwards/jsonpaintings/marker.txt", new byte[0]);
         }
         assertTrue(FermiumRegistryAPI.isModPresent("cached_metadata"));
         assertTrue(FermiumRegistryAPI.isModPresent("cached_annotation"));
-        assertTrue(FermiumRegistryAPI.isModPresent("optifine"));
         assertTrue(FermiumRegistryAPI.isModPresent("jsonpaintings"));
         assertTrue(JarDiscovery.getEnumeratedEntryCount() > 0);
 
@@ -131,10 +148,10 @@ class JarModIdDiscoveryTest {
 
         assertTrue(FermiumRegistryAPI.isModPresent("cached_metadata"));
         assertTrue(FermiumRegistryAPI.isModPresent("cached_annotation"));
-        assertTrue(FermiumRegistryAPI.isModPresent("optifine"));
         assertTrue(FermiumRegistryAPI.isModPresent("jsonpaintings"));
         assertEquals(0, JarDiscovery.getEnumeratedEntryCount());
         assertEquals(0, JarDiscovery.getPrefilterScanCount());
+        assertEquals(0, JarDiscovery.getAsmClassReadCount());
     }
 
     @Test
@@ -211,6 +228,26 @@ class JarModIdDiscoveryTest {
         AnnotationVisitor annotation = writer.visitAnnotation(FORGE_MOD, true);
         annotation.visit("modid", modId);
         annotation.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private static byte[] modAndConfigClass(String className, String modId) {
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, className, null, "java/lang/Object", null);
+        AnnotationVisitor mod = writer.visitAnnotation(FORGE_MOD, true);
+        mod.visit("modid", modId);
+        mod.visitEnd();
+        AnnotationVisitor config = writer.visitAnnotation(ConfigReader.MIXIN_CONFIG, true);
+        config.visit("name", "combined-config");
+        config.visitEnd();
+        FieldVisitor field = writer.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "enabled", "Z", null, null);
+        AnnotationVisitor toggle = field.visitAnnotation(
+                "Lfermiumbooter/annotations/MixinConfig$MixinToggle;", true);
+        toggle.visit("earlyMixin", "mixins.combined.json");
+        toggle.visit("defaultValue", true);
+        toggle.visitEnd();
+        field.visitEnd();
         writer.visitEnd();
         return writer.toByteArray();
     }
