@@ -72,6 +72,27 @@ class JarDiscoveryCacheTest {
     }
 
     @Test
+    void warmCacheRestoresMultipleJarsAfterParallelFingerprinting() throws Exception {
+        createFixtureJar();
+        Path metadataJar = Files.createDirectories(this.gameDirectory.resolve("mods"))
+                .resolve("parallel-metadata.jar");
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(metadataJar))) {
+            output.putNextEntry(new JarEntry("mcmod.info"));
+            output.write("[{\"modid\":\"parallel_cached_mod\"}]".getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
+        }
+        prepareGameDirectory();
+        JarDiscovery.registerConfigs();
+        JarDiscovery.resetForTesting();
+
+        assertTrue(JarDiscovery.isModPresent("parallel_cached_mod"));
+        assertEquals(2, JarDiscovery.getFingerprintReadCount());
+        assertEquals(0, JarDiscovery.getEnumeratedEntryCount());
+        assertEquals(0, JarDiscovery.getPrefilterScanCount());
+        assertEquals(0, JarDiscovery.getAsmClassReadCount());
+    }
+
+    @Test
     void disabledCacheSkipsContentFingerprintingDuringDiscovery() throws Exception {
         createFixtureJar();
         System.setProperty("rebooter.discoveryCache", "false");
@@ -162,6 +183,49 @@ class JarDiscoveryCacheTest {
         assertArrayEquals(
                 MessageDigest.getInstance("SHA-256").digest(firstBytes),
                 fingerprinter.fingerprint(first.toFile()));
+    }
+
+    @Test
+    void parallelFingerprintFailureDoesNotDiscardOtherResults() throws Exception {
+        Path broken = Files.write(this.gameDirectory.resolve("broken.jar"), new byte[]{1});
+        Path healthy = Files.write(this.gameDirectory.resolve("healthy.jar"), new byte[]{2, 3, 4});
+        JarDiscoveryCache cache = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+        byte[] fingerprint = new byte[32];
+        cache.record(
+                broken.toFile(),
+                JarDiscoveryCache.stamp(broken.toFile()),
+                fingerprint,
+                Collections.emptyList(),
+                null,
+                Collections.emptySet(),
+                Collections.emptySet(),
+                Collections.emptySet());
+        cache.record(
+                healthy.toFile(),
+                JarDiscoveryCache.stamp(healthy.toFile()),
+                fingerprint,
+                Collections.emptyList(),
+                null,
+                Collections.emptySet(),
+                Collections.emptySet(),
+                Collections.emptySet());
+        cache.save();
+        cache = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+        Files.delete(broken);
+        Files.createDirectory(broken);
+
+        FingerprintCollector.Batch batch = FingerprintCollector.collect(
+                Arrays.asList(broken.toFile(), healthy.toFile()),
+                cache,
+                new JarDiscoveryCache.ContentFingerprinter());
+
+        assertNotNull(batch.result(broken.toFile()).failure());
+        assertNull(batch.result(healthy.toFile()).failure());
+        assertArrayEquals(
+                MessageDigest.getInstance("SHA-256").digest(new byte[]{2, 3, 4}),
+                batch.result(healthy.toFile()).fingerprint());
+        assertEquals(2, batch.fingerprintCount());
+        assertEquals(3, batch.fingerprintBytes());
     }
 
     @Test

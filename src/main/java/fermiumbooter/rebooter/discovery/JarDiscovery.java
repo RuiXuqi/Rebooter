@@ -88,6 +88,15 @@ public final class JarDiscovery {
         long candidateStarted = statistics.start();
         Set<File> candidates = JarCollector.collect(GameDirectory.resolve());
         statistics.candidateCollection(statistics.elapsed(candidateStarted), candidates.size());
+        FingerprintCollector.Batch cachedFingerprints = FingerprintCollector.collect(
+                candidates,
+                cache,
+                fingerprinter);
+        fingerprintReadCount += cachedFingerprints.fingerprintCount();
+        statistics.fingerprintBatch(
+                cachedFingerprints.fingerprintCount(),
+                cachedFingerprints.fingerprintBytes(),
+                cachedFingerprints.elapsedNanos());
         for (File candidate : candidates) {
             scanJar(
                     candidate,
@@ -97,6 +106,7 @@ public final class JarDiscovery {
                     discoveredMods,
                     configResults,
                     cache,
+                    cachedFingerprints,
                     fingerprinter,
                     statistics);
         }
@@ -149,20 +159,31 @@ public final class JarDiscovery {
             Set<String> discoveredMods,
             List<ConfigReader.Result> configResults,
             JarDiscoveryCache cache,
+            FingerprintCollector.Batch cachedFingerprints,
             JarDiscoveryCache.ContentFingerprinter fingerprinter,
             DiscoveryStatistics statistics) {
         JarDiscoveryCache.FileStamp initialStamp;
         byte[] fingerprint = null;
         JarDiscoveryCache.CachedData cached = null;
-        try {
-            initialStamp = JarDiscoveryCache.stamp(file);
-            if (cache.hasLoadedEntry(file)) {
-                fingerprint = contentFingerprint(file, fingerprinter, statistics);
-                cached = cache.lookup(file, initialStamp, fingerprint);
+        FingerprintCollector.Result preparedFingerprint = cachedFingerprints.result(file);
+        if (preparedFingerprint != null) {
+            if (preparedFingerprint.failure() != null) {
+                Reference.LOGGER.error(
+                        "Failed to inspect discovery candidate {}",
+                        file,
+                        preparedFingerprint.failure());
+                return;
             }
-        } catch (IOException e) {
-            Reference.LOGGER.error("Failed to inspect discovery candidate {}", file, e);
-            return;
+            initialStamp = preparedFingerprint.stamp();
+            fingerprint = preparedFingerprint.fingerprint();
+            cached = cache.lookup(file, initialStamp, fingerprint);
+        } else {
+            try {
+                initialStamp = JarDiscoveryCache.stamp(file);
+            } catch (IOException e) {
+                Reference.LOGGER.error("Failed to inspect discovery candidate {}", file, e);
+                return;
+            }
         }
         if (cached != null) {
             statistics.cacheHit();
@@ -303,7 +324,7 @@ public final class JarDiscovery {
         try {
             return fingerprinter.fingerprint(file);
         } finally {
-            statistics.fingerprint(file, statistics.elapsed(started));
+            statistics.fingerprint(fingerprinter.bytesRead(), statistics.elapsed(started));
         }
     }
 

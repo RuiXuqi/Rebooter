@@ -674,16 +674,23 @@ final class JarDiscoveryCache {
     static final class ContentFingerprinter {
         private final MessageDigest digest = sha256();
         private final byte[] buffer = new byte[FINGERPRINT_BUFFER_SIZE];
+        private long bytesRead;
 
         byte[] fingerprint(File source) throws IOException {
             this.digest.reset();
+            this.bytesRead = 0L;
             try (InputStream input = Files.newInputStream(source.toPath())) {
                 int read;
                 while ((read = input.read(this.buffer)) >= 0) {
                     this.digest.update(this.buffer, 0, read);
+                    this.bytesRead += read;
                 }
             }
             return this.digest.digest();
+        }
+
+        long bytesRead() {
+            return this.bytesRead;
         }
     }
 

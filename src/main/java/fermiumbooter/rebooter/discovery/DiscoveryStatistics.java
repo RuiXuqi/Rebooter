@@ -2,7 +2,6 @@ package fermiumbooter.rebooter.discovery;
 
 import fermiumbooter.rebooter.Reference;
 
-import java.io.File;
 import java.util.concurrent.TimeUnit;
 
 final class DiscoveryStatistics {
@@ -58,10 +57,17 @@ final class DiscoveryStatistics {
         if (this.enabled) this.cacheMisses++;
     }
 
-    void fingerprint(File file, long nanos) {
+    void fingerprint(long bytes, long nanos) {
         if (!this.enabled) return;
         this.fingerprintCount++;
-        this.fingerprintBytes += Math.max(0L, file.length());
+        this.fingerprintBytes += bytes;
+        this.fingerprintNanos += nanos;
+    }
+
+    void fingerprintBatch(int count, long bytes, long nanos) {
+        if (!this.enabled) return;
+        this.fingerprintCount += count;
+        this.fingerprintBytes += bytes;
         this.fingerprintNanos += nanos;
     }
 
