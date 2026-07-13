@@ -19,15 +19,14 @@ spotless {
 }
 
 tasks.withType(Test).configureEach {
-    forkEvery = 1
     maxParallelForks = 1
 }
 
-['runClient', 'runServer', 'runObfClient', 'runObfServer'].each { taskName ->
-    tasks.named(taskName).configure {
-        extraJvmArgs.add('-Drebooter.discoveryCache=false')
-    }
-}
+//['runClient', 'runServer', 'runObfClient', 'runObfServer'].each { taskName ->
+//    tasks.named(taskName).configure {
+//        extraJvmArgs.add('-Drebooter.discoveryCache=false')
+//    }
+//}
 
 sourceSets {
     testmod {
@@ -50,7 +49,7 @@ tasks.register('testmodJar', Jar) {
     }
 }
 
-def testmodRunDirectories = [runClient: file('run')]
+def testmodRunDirectories = [runClient: file('run'), runServer: file('run')]
 if (providers.gradleProperty('withTestmod').isPresent()) {
     testmodRunDirectories.runObfClient = file('run/obfuscated')
 }

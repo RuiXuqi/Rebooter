@@ -10,5 +10,5 @@ fermiumbooter.config.forcedEarlyMixinConfigRemovals=强制移除早期 Mixin 配
 fermiumbooter.config.forcedEarlyMixinConfigRemovals.tooltip=在早期和晚期加载阶段均拒绝的 Mixin 配置资源名称。\n移除优先于同名的强制添加、注解和 API 注册。
 fermiumbooter.config.modDiscoveryPackageMappings=模组发现包映射
 fermiumbooter.config.modDiscoveryPackageMappings.tooltip=为发现器未报告的模组 ID 提供的后备包前缀。\n当任一已扫描 JAR 条目以其映射的包前缀开头时，认为该模组 ID 存在。\n格式：package.name=modid。接受点号和斜杠分隔的写法。\n模组 ID 保留配置中的大小写；API 和兼容性查询不区分大小写。
-fermiumbooter.config.mixinConfigScanAllowlist=Mixin 配置扫描白名单
-fermiumbooter.config.mixinConfigScanAllowlist.tooltip=在通常会被过滤时，仍可扫描 @MixinConfig 的包前缀。\n仅将其用于放置在内嵌库包路径下的配置类。\n接受点号和斜杠分隔的写法。
+fermiumbooter.config.discoveryClassScanAllowlist=发现类扫描白名单
+fermiumbooter.config.discoveryClassScanAllowlist.tooltip=在通常会被过滤时，仍可扫描发现注解的包前缀。\n适用于内嵌库包路径下的 @MixinConfig 和 Forge @Mod 类。\n接受点号和斜杠分隔的写法。

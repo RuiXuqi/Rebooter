@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-@SuppressWarnings("deprecation")
 @IFMLLoadingPlugin.MCVersion("1.12.2")
 public final class RebooterCorePlugin implements IFMLLoadingPlugin, IEarlyMixinLoader {
     @Nullable

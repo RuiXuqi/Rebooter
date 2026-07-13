@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.jar.JarEntry;
 
-final class MixinConfigClassFilter {
-    private static final String[] SKIPPED_CLASS_PREFIXES = {
+final class DiscoveryClassFilter {
+    private static final String[] SKIPPED_CLASS_PREFIXES = new String[]{
             "META-INF/",
             "__MACOSX/",
 
@@ -37,7 +37,7 @@ final class MixinConfigClassFilter {
             "clojure/"
     };
 
-    private MixinConfigClassFilter() {
+    private DiscoveryClassFilter() {
     }
 
     static boolean isScannable(JarEntry entry, Set<String> allowedPrefixes) {
@@ -54,7 +54,7 @@ final class MixinConfigClassFilter {
     static String cacheProfile(Set<String> allowedPrefixes) {
         List<String> sortedAllowedPrefixes = new ArrayList<>(allowedPrefixes);
         Collections.sort(sortedAllowedPrefixes);
-        StringBuilder profile = new StringBuilder("mixin-config-class-filter\n");
+        StringBuilder profile = new StringBuilder("discovery-class-filter\n");
         append(profile, SKIPPED_CLASS_PREFIXES);
         profile.append("--allowlist--\n");
         append(profile, sortedAllowedPrefixes);

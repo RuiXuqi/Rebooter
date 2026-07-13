@@ -1,43 +1,54 @@
 package fermiumbooter.rebooter.discovery;
 
-import com.google.common.annotations.VisibleForTesting;
-
-import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.SequenceInputStream;
 import java.nio.charset.StandardCharsets;
 
-final class MixinConfigScanner {
+final class ClassAnnotationScanner {
+    private static final int SCANNER_VERSION = 1;
+    static final int MIXIN_CONFIG = 1;
+    static final int FORGE_MOD = 1 << 1;
+    static final String FORGE_MOD_DESCRIPTOR = "Lnet/minecraftforge/fml/common/Mod;";
     private static final int CLASS_MAGIC = 0xCAFEBABE;
     private static final byte[] MIXIN_CONFIG_BYTES = ConfigReader.MIXIN_CONFIG.getBytes(StandardCharsets.US_ASCII);
-    private final byte[] utf8Buffer = new byte[MIXIN_CONFIG_BYTES.length];
+    private static final byte[] FORGE_MOD_BYTES = FORGE_MOD_DESCRIPTOR.getBytes(StandardCharsets.US_ASCII);
+    private final byte[] utf8Buffer = new byte[Math.max(MIXIN_CONFIG_BYTES.length, FORGE_MOD_BYTES.length)];
     private byte[] readBuffer = new byte[8192];
     private InputStream input;
     private int offset;
     private int limit;
 
-    @VisibleForTesting
-    boolean mightContainMixinConfig(InputStream input) throws IOException {
+    static String cacheProfile() {
+        return "class-annotation-scanner-v" + SCANNER_VERSION + '\n'
+                + ConfigReader.MIXIN_CONFIG + '\n'
+                + FORGE_MOD_DESCRIPTOR + '\n';
+    }
+
+    ScanResult scan(InputStream input) throws IOException {
+        return this.scan(input, -1);
+    }
+
+    ScanResult scan(InputStream input, long classSize) throws IOException {
         this.input = input;
         this.offset = 0;
         this.limit = 0;
         try {
             if (this.readInt() != CLASS_MAGIC) {
-                return false;
+                return ScanResult.empty();
             }
             this.skipFully(4);
+            int flags = 0;
             int constantPoolCount = this.readUnsignedShort();
             for (int index = 1; index < constantPoolCount; index++) {
                 int tag = this.readUnsignedByte();
                 switch (tag) {
                     case 1:
                         int length = this.readUnsignedShort();
-                        if (length == MIXIN_CONFIG_BYTES.length) {
+                        if (length == MIXIN_CONFIG_BYTES.length || length == FORGE_MOD_BYTES.length) {
                             this.readFully(this.utf8Buffer, length);
-                            if (this.matchesMixinConfigDescriptor()) {
-                                return true;
-                            }
+                            if (matches(this.utf8Buffer, length, MIXIN_CONFIG_BYTES)) flags |= MIXIN_CONFIG;
+                            if (matches(this.utf8Buffer, length, FORGE_MOD_BYTES)) flags |= FORGE_MOD;
                         } else {
                             this.skipFully(length);
                         }
@@ -68,37 +79,50 @@ final class MixinConfigScanner {
                         this.skipFully(3);
                         break;
                     default:
-                        return false;
+                        return ScanResult.empty();
                 }
             }
-            return false;
+            return flags == 0 ? ScanResult.empty() : new ScanResult(flags, this.completeClass(input, classSize));
         } finally {
             this.input = null;
         }
     }
 
-    ConfigReader.Result scanIfPresent(InputStream input) throws IOException {
-        if (!this.mightContainMixinConfig(input)) {
-            return null;
+    private byte[] completeClass(InputStream remaining, long classSize) throws IOException {
+        if (classSize > Integer.MAX_VALUE) {
+            throw new IOException("Class file is too large");
         }
-        InputStream completeClass = new SequenceInputStream(
-                new ByteArrayInputStream(this.readBuffer, 0, this.limit), input);
-        return ConfigReader.scan(completeClass);
+        if (classSize >= this.limit) {
+            byte[] bytes = new byte[(int) classSize];
+            System.arraycopy(this.readBuffer, 0, bytes, 0, this.limit);
+            int offset = this.limit;
+            while (offset < bytes.length) {
+                int read = remaining.read(bytes, offset, bytes.length - offset);
+                if (read < 0) throw new IOException("Unexpected end of class file");
+                if (read > 0) offset += read;
+            }
+            return bytes;
+        }
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(this.limit + 4096);
+        bytes.write(this.readBuffer, 0, this.limit);
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = remaining.read(buffer)) >= 0) {
+            bytes.write(buffer, 0, read);
+        }
+        return bytes.toByteArray();
     }
 
-    private boolean matchesMixinConfigDescriptor() {
-        for (int index = 0; index < MIXIN_CONFIG_BYTES.length; index++) {
-            if (this.utf8Buffer[index] != MIXIN_CONFIG_BYTES[index]) {
-                return false;
-            }
+    private static boolean matches(byte[] actual, int actualLength, byte[] expected) {
+        if (actualLength != expected.length) return false;
+        for (int index = 0; index < expected.length; index++) {
+            if (actual[index] != expected[index]) return false;
         }
         return true;
     }
 
     private int readUnsignedByte() throws IOException {
-        if (this.offset == this.limit) {
-            this.fill();
-        }
+        if (this.offset == this.limit) this.fill();
         return this.readBuffer[this.offset++] & 0xFF;
     }
 
@@ -116,9 +140,7 @@ final class MixinConfigScanner {
     private void readFully(byte[] destination, int length) throws IOException {
         int destinationOffset = 0;
         while (destinationOffset < length) {
-            if (this.offset == this.limit) {
-                this.fill();
-            }
+            if (this.offset == this.limit) this.fill();
             int copied = Math.min(length - destinationOffset, this.limit - this.offset);
             System.arraycopy(this.readBuffer, this.offset, destination, destinationOffset, copied);
             this.offset += copied;
@@ -129,9 +151,7 @@ final class MixinConfigScanner {
     private void skipFully(int length) throws IOException {
         int remaining = length;
         while (remaining > 0) {
-            if (this.offset == this.limit) {
-                this.fill();
-            }
+            if (this.offset == this.limit) this.fill();
             int skipped = Math.min(remaining, this.limit - this.offset);
             this.offset += skipped;
             remaining -= skipped;
@@ -148,9 +168,34 @@ final class MixinConfigScanner {
         do {
             read = this.input.read(this.readBuffer, this.limit, this.readBuffer.length - this.limit);
         } while (read == 0);
-        if (read < 0) {
-            throw new IOException("Unexpected end of class file");
-        }
+        if (read < 0) throw new IOException("Unexpected end of class file");
         this.limit += read;
+    }
+
+    static final class ScanResult {
+        private static final ScanResult EMPTY = new ScanResult(0, null);
+        private final int flags;
+        private final byte[] classBytes;
+
+        private ScanResult(int flags, byte[] classBytes) {
+            this.flags = flags;
+            this.classBytes = classBytes;
+        }
+
+        private static ScanResult empty() {
+            return EMPTY;
+        }
+
+        boolean has(int flag) {
+            return (this.flags & flag) != 0;
+        }
+
+        boolean isEmpty() {
+            return this.flags == 0;
+        }
+
+        byte[] classBytes() {
+            return this.classBytes;
+        }
     }
 }

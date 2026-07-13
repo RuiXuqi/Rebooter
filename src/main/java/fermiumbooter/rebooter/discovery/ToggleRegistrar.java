@@ -60,7 +60,7 @@ final class ToggleRegistrar {
                                           boolean hasEarly, boolean hasLate) {
         if (hasEarly && hasLate) return String.format("for early '%s' and late '%s'", earlyConfig, lateConfig);
         if (hasEarly) return String.format("early '%s'", earlyConfig);
-        if (hasLate) return String.format("late '%s", lateConfig);
+        if (hasLate) return String.format("late '%s'", lateConfig);
         return "none";
     }
 }

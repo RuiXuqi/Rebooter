@@ -28,7 +28,7 @@ class CurrentConfigReaderTest {
         byte[] classBytes = classBytesWithUtf8("unrelated", MIXIN_CONFIG);
         CountingInputStream input = new CountingInputStream(new ByteArrayInputStream(classBytes));
 
-        boolean found = new MixinConfigScanner().mightContainMixinConfig(input);
+        boolean found = new ClassAnnotationScanner().scan(input).has(ClassAnnotationScanner.MIXIN_CONFIG);
 
         assertFalse(found);
         assertTrue(input.bytesRead() < classBytes.length, "method bodies must not be decompressed during prefiltering");
@@ -38,8 +38,8 @@ class CurrentConfigReaderTest {
     void prefilterFindsTheAnnotationDescriptorInTheConstantPool() throws Exception {
         byte[] classBytes = classBytesWithUtf8(MIXIN_CONFIG, "unused tail");
 
-        assertTrue(new MixinConfigScanner()
-                .mightContainMixinConfig(new ByteArrayInputStream(classBytes)));
+        assertTrue(new ClassAnnotationScanner().scan(new ByteArrayInputStream(classBytes))
+                .has(ClassAnnotationScanner.MIXIN_CONFIG));
     }
 
     @Test
@@ -48,7 +48,8 @@ class CurrentConfigReaderTest {
         ConfigReader.Result result;
         try (InputStream input = Objects.requireNonNull(
                 Fixture.class.getClassLoader().getResourceAsStream(resource), resource)) {
-            result = new MixinConfigScanner().scanIfPresent(input);
+            ClassAnnotationScanner.ScanResult scan = new ClassAnnotationScanner().scan(input);
+            result = ConfigReader.scan(scan.classBytes());
         }
 
         assertNotNull(result);

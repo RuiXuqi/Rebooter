@@ -1,5 +1,6 @@
 package fermiumbooter.config;
 
+import com.google.common.annotations.VisibleForTesting;
 import fermiumbooter.rebooter.Rebooter;
 import fermiumbooter.rebooter.Reference;
 import net.minecraftforge.common.config.Config;
@@ -7,6 +8,10 @@ import net.minecraftforge.common.config.Config;
 @Config(modid = Reference.MOD_ID)
 public final class FermiumBooterConfig {
     private static final String PREFIX = Reference.MOD_ID + ".config.";
+    private static final String[] DEFAULT_MOD_DISCOVERY_PACKAGE_MAPPINGS = new String[]{
+            "git.jbredwards.jsonpaintings=jsonpaintings",
+            "net.jan.moddirector=moddirector"
+    };
 
     @Config.LangKey(PREFIX + "enableCustomNetworkVersion")
     @Config.Name("Enable Custom Network Version")
@@ -57,18 +62,26 @@ public final class FermiumBooterConfig {
             "Format: package.name=modid. Dotted and slash-separated package names are accepted.",
             "Mod IDs preserve their configured case; API and compatibility queries ignore case."
     })
-    public static String[] modDiscoveryPackageMappings = new String[]{
-            "git.jbredwards.jsonpaintings=jsonpaintings",
-            "net.jan.moddirector=moddirector"
-    };
+    public static String[] modDiscoveryPackageMappings = DEFAULT_MOD_DISCOVERY_PACKAGE_MAPPINGS.clone();
 
-    @Config.LangKey(PREFIX + "mixinConfigScanAllowlist")
+    @Config.LangKey(PREFIX + "discoveryClassScanAllowlist")
     @Config.RequiresMcRestart
-    @Config.Name("Mixin Config Scan Allowlist")
+    @Config.Name("Discovery Class Scan Allowlist")
     @Config.Comment({
-            "Package prefixes that remain eligible for @MixinConfig scanning when normally filtered.",
-            "Use this only for configuration classes placed under bundled library packages.",
+            "Package prefixes that remain eligible for @MixinConfig and @Mod scanning when normally filtered.",
+            "Use this only for discovery classes placed under bundled library packages.",
             "Dotted and slash-separated package names are accepted."
     })
-    public static String[] mixinConfigScanAllowlist = new String[]{};
+    public static String[] discoveryClassScanAllowlist = new String[]{};
+
+    @VisibleForTesting
+    public static void resetForTesting() {
+        enableCustomNetworkVersion = false;
+        customNetworkVersion = Rebooter.COMPAT_VERSION;
+        overrideMixinCompatibilityChecks = false;
+        forcedEarlyMixinConfigAdditions = new String[]{};
+        forcedEarlyMixinConfigRemovals = new String[]{};
+        modDiscoveryPackageMappings = DEFAULT_MOD_DISCOVERY_PACKAGE_MAPPINGS.clone();
+        discoveryClassScanAllowlist = new String[]{};
+    }
 }

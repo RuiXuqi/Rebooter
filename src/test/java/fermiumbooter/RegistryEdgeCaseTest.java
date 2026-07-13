@@ -37,7 +37,8 @@ class RegistryEdgeCaseTest {
     }
 
     @Test
-    void builtInModIdsAreCaseInsensitive() {
+    void builtInModIdsAreCaseInsensitive() throws Exception {
+        ForgeTestEnvironment.setGameDirectory(this.gameDirectory);
         assertTrue(FermiumRegistryAPI.isModPresent("minecraft"));
         assertTrue(FermiumRegistryAPI.isModPresent("mcp"));
         assertTrue(FermiumRegistryAPI.isModPresent("FML"));

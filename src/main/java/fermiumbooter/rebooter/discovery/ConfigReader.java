@@ -22,8 +22,18 @@ final class ConfigReader {
 
     @Nullable
     static Result scan(InputStream input) throws IOException {
+        return scan(new ClassReader(input));
+    }
+
+    @Nullable
+    static Result scan(byte[] classBytes) {
+        return scan(new ClassReader(classBytes));
+    }
+
+    @Nullable
+    private static Result scan(ClassReader classReader) {
         ConfigReader reader = new ConfigReader();
-        new ClassReader(input).accept(
+        classReader.accept(
                 reader.configClassVisitor(),
                 ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         return reader.result();

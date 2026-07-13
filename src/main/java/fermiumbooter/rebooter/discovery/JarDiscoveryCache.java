@@ -13,21 +13,20 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.jar.JarEntry;
 
 final class JarDiscoveryCache {
     private static final String ENABLED_PROPERTY = "rebooter.discoveryCache";
     // RBTDISC Rebooter Discovery
     // Bump when format updated
-    private static final long MAGIC = 0x5242544449534301L;
+    private static final long MAGIC = 0x5242544449534302L;
     private static final int DIGEST_LENGTH = 32;
     private static final int MAX_FILE_SIZE = 16 * 1024 * 1024;
     private static final int MAX_PAYLOAD_SIZE = MAX_FILE_SIZE - 4096;
     private static final int MAX_JARS = 4096;
     private static final int MAX_CONFIG_CLASSES_PER_JAR = 4096;
     private static final int MAX_CONFIG_CLASSES_TOTAL = 100_000;
-    private static final int MAX_FALLBACK_MODS_PER_JAR = 4096;
-    private static final int MAX_FALLBACK_MODS_TOTAL = 100_000;
+    private static final int MAX_MOD_IDS_PER_JAR = 4096;
+    private static final int MAX_MOD_IDS_TOTAL = 300_000;
     private static final int MAX_STRING_BYTES = 65_535;
 
     private final Path file;
@@ -81,9 +80,7 @@ final class JarDiscoveryCache {
     }
 
     /**
-     * Metadata-only identity keeps warm discovery from reading JAR contents. Mod files are assumed immutable
-     * during launch; deployments that rewrite a file in place while restoring all metadata must disable the
-     * discovery cache with {@code -Drebooter.discoveryCache=false}.
+     * File state is paired with a full-file SHA-256 fingerprint before cached discovery data is reused.
      */
     static FileStamp stamp(File source) throws IOException {
         BasicFileAttributes attributes = Files.readAttributes(
@@ -96,13 +93,12 @@ final class JarDiscoveryCache {
                 fileKey == null ? "" : fileKey.toString());
     }
 
-    CachedData lookup(File source, FileStamp stamp) {
-        if (!this.enabled) return null;
-        String path = source.getAbsolutePath();
-        Entry entry = this.loaded.get(path);
-        if (entry == null || !entry.stamp.equals(stamp)) return null;
-        this.current.put(path, entry);
-        return entry.data();
+    boolean isEnabled() {
+        return this.enabled;
+    }
+
+    boolean hasLoadedEntry(File source) {
+        return this.enabled && this.loaded.containsKey(source.getAbsolutePath());
     }
 
     CachedData lookup(File source, FileStamp stamp, byte[] fingerprint) {
@@ -121,16 +117,20 @@ final class JarDiscoveryCache {
             FileStamp stamp,
             byte[] fingerprint,
             List<String> configClasses,
-            Set<String> fallbackMods) {
+            String metadataModId,
+            Set<String> annotationModIds,
+            Set<String> mappedModIds,
+            Set<String> launcherModIds) {
         if (!this.enabled) return;
         String path = source.getAbsolutePath();
-        List<String> sortedFallbackMods = new ArrayList<>(fallbackMods);
-        Collections.sort(sortedFallbackMods);
         this.current.put(path, new Entry(
                 stamp,
                 fingerprint.clone(),
                 immutable(configClasses),
-                immutable(sortedFallbackMods)));
+                metadataModId,
+                immutableSorted(annotationModIds),
+                immutableSorted(mappedModIds),
+                immutableSorted(launcherModIds)));
         this.dirty = true;
     }
 
@@ -168,14 +168,22 @@ final class JarDiscoveryCache {
         }
     }
 
-    static Fingerprint fingerprint() {
-        return new Fingerprint();
+    static byte[] contentFingerprint(File source) throws IOException {
+        MessageDigest digest = sha256();
+        try (InputStream input = Files.newInputStream(source.toPath())) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                digest.update(buffer, 0, read);
+            }
+        }
+        return digest.digest();
     }
 
     private static byte[] encode(Map<String, Entry> entries, byte[] scanProfileDigest) throws IOException {
         checkCount(entries.size(), MAX_JARS, "JAR count");
         int totalConfigClasses = 0;
-        int totalFallbackMods = 0;
+        int totalModIds = 0;
         for (Entry entry : entries.values()) {
             checkCount(
                     entry.configClasses.size(),
@@ -186,15 +194,9 @@ final class JarDiscoveryCache {
                     entry.configClasses.size(),
                     MAX_CONFIG_CLASSES_TOTAL,
                     "total config class count");
-            checkCount(
-                    entry.fallbackMods.size(),
-                    MAX_FALLBACK_MODS_PER_JAR,
-                    "fallback mod count");
-            totalFallbackMods = checkedTotal(
-                    totalFallbackMods,
-                    entry.fallbackMods.size(),
-                    MAX_FALLBACK_MODS_TOTAL,
-                    "total fallback mod count");
+            totalModIds = checkModIds(entry.annotationModIds, totalModIds, "annotation mod ID");
+            totalModIds = checkModIds(entry.mappedModIds, totalModIds, "mapped mod ID");
+            totalModIds = checkModIds(entry.launcherModIds, totalModIds, "launcher mod ID");
         }
         BoundedByteArrayOutputStream payloadBytes = new BoundedByteArrayOutputStream(MAX_PAYLOAD_SIZE);
         try (DataOutputStream payload = new DataOutputStream(payloadBytes)) {
@@ -207,15 +209,11 @@ final class JarDiscoveryCache {
                 payload.writeLong(entry.stamp.creationTimeNanos);
                 writeString(payload, entry.stamp.fileKey);
                 payload.write(entry.fingerprint);
-                List<String> configClasses = entry.configClasses;
-                payload.writeInt(configClasses.size());
-                for (String configClass : configClasses) {
-                    writeString(payload, configClass);
-                }
-                payload.writeInt(entry.fallbackMods.size());
-                for (String fallbackMod : entry.fallbackMods) {
-                    writeString(payload, fallbackMod);
-                }
+                writeString(payload, entry.metadataModId == null ? "" : entry.metadataModId);
+                writeStrings(payload, entry.configClasses);
+                writeStrings(payload, entry.annotationModIds);
+                writeStrings(payload, entry.mappedModIds);
+                writeStrings(payload, entry.launcherModIds);
             }
         }
         byte[] payload = payloadBytes.toByteArray();
@@ -267,7 +265,7 @@ final class JarDiscoveryCache {
             int entryCount = readCount(input, MAX_JARS, "JAR count");
             Map<String, Entry> entries = new LinkedHashMap<>();
             int totalConfigClasses = 0;
-            int totalFallbackMods = 0;
+            int totalModIds = 0;
             for (int index = 0; index < entryCount; index++) {
                 String path = readString(input);
                 FileStamp stamp = new FileStamp(
@@ -277,6 +275,8 @@ final class JarDiscoveryCache {
                         readString(input));
                 byte[] fingerprint = new byte[DIGEST_LENGTH];
                 input.readFully(fingerprint);
+                String metadataModId = readString(input);
+                if (metadataModId.isEmpty()) metadataModId = null;
                 int classCount = readCount(input, MAX_CONFIG_CLASSES_PER_JAR, "config class count");
                 totalConfigClasses = checkedTotal(
                         totalConfigClasses,
@@ -287,21 +287,20 @@ final class JarDiscoveryCache {
                 for (int classIndex = 0; classIndex < classCount; classIndex++) {
                     configClasses.add(readString(input));
                 }
-                int fallbackModCount = readCount(input, MAX_FALLBACK_MODS_PER_JAR, "fallback mod count");
-                totalFallbackMods = checkedTotal(
-                        totalFallbackMods,
-                        fallbackModCount,
-                        MAX_FALLBACK_MODS_TOTAL,
-                        "total fallback mod count");
-                List<String> fallbackMods = new ArrayList<>(fallbackModCount);
-                for (int fallbackIndex = 0; fallbackIndex < fallbackModCount; fallbackIndex++) {
-                    fallbackMods.add(readString(input));
-                }
+                List<String> annotationModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "annotation mod ID count");
+                totalModIds = checkedTotal(totalModIds, annotationModIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
+                List<String> mappedModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "mapped mod ID count");
+                totalModIds = checkedTotal(totalModIds, mappedModIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
+                List<String> launcherModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "launcher mod ID count");
+                totalModIds = checkedTotal(totalModIds, launcherModIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
                 if (entries.put(path, new Entry(
                         stamp,
                         fingerprint,
                         immutable(configClasses),
-                        immutable(fallbackMods))) != null) {
+                        metadataModId,
+                        immutable(annotationModIds),
+                        immutable(mappedModIds),
+                        immutable(launcherModIds))) != null) {
                     throw new IOException("duplicate JAR path in cache");
                 }
             }
@@ -318,6 +317,29 @@ final class JarDiscoveryCache {
         return values.isEmpty()
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(new ArrayList<>(values));
+    }
+
+    private static List<String> immutableSorted(Collection<String> values) {
+        List<String> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        return immutable(sorted);
+    }
+
+    private static int checkModIds(List<String> modIds, int total, String description) throws IOException {
+        checkCount(modIds.size(), MAX_MOD_IDS_PER_JAR, description + " count");
+        return checkedTotal(total, modIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
+    }
+
+    private static void writeStrings(DataOutputStream output, List<String> values) throws IOException {
+        output.writeInt(values.size());
+        for (String value : values) writeString(output, value);
+    }
+
+    private static List<String> readStrings(DataInputStream input, int maximum, String description) throws IOException {
+        int count = readCount(input, maximum, description);
+        List<String> values = new ArrayList<>(count);
+        for (int index = 0; index < count; index++) values.add(readString(input));
+        return values;
     }
 
     private static void writeString(DataOutputStream output, String value) throws IOException {
@@ -376,48 +398,44 @@ final class JarDiscoveryCache {
         return true;
     }
 
-    static final class Fingerprint {
-        private final MessageDigest digest = sha256();
-        private final byte[] number = new byte[8];
-
-        void add(JarEntry entry) {
-            byte[] name = entry.getName().getBytes(StandardCharsets.UTF_8);
-            this.updateLong(name.length);
-            this.digest.update(name);
-            this.updateLong(entry.getCrc());
-            this.updateLong(entry.getCompressedSize());
-            this.updateLong(entry.getSize());
-            this.updateLong(entry.getMethod());
-        }
-
-        byte[] finish() {
-            return this.digest.digest();
-        }
-
-        private void updateLong(long value) {
-            for (int index = this.number.length - 1; index >= 0; index--) {
-                this.number[index] = (byte) value;
-                value >>>= 8;
-            }
-            this.digest.update(this.number);
-        }
-    }
-
     static final class CachedData {
         private final List<String> configClasses;
-        private final List<String> fallbackMods;
+        private final String metadataModId;
+        private final List<String> annotationModIds;
+        private final List<String> mappedModIds;
+        private final List<String> launcherModIds;
 
-        private CachedData(List<String> configClasses, List<String> fallbackMods) {
+        private CachedData(
+                List<String> configClasses,
+                String metadataModId,
+                List<String> annotationModIds,
+                List<String> mappedModIds,
+                List<String> launcherModIds) {
             this.configClasses = configClasses;
-            this.fallbackMods = fallbackMods;
+            this.metadataModId = metadataModId;
+            this.annotationModIds = annotationModIds;
+            this.mappedModIds = mappedModIds;
+            this.launcherModIds = launcherModIds;
         }
 
         List<String> configClasses() {
             return this.configClasses;
         }
 
-        List<String> fallbackMods() {
-            return this.fallbackMods;
+        String metadataModId() {
+            return this.metadataModId;
+        }
+
+        List<String> annotationModIds() {
+            return this.annotationModIds;
+        }
+
+        List<String> mappedModIds() {
+            return this.mappedModIds;
+        }
+
+        List<String> launcherModIds() {
+            return this.launcherModIds;
         }
     }
 
@@ -459,19 +477,29 @@ final class JarDiscoveryCache {
         private final FileStamp stamp;
         private final byte[] fingerprint;
         private final List<String> configClasses;
-        private final List<String> fallbackMods;
+        private final String metadataModId;
+        private final List<String> annotationModIds;
+        private final List<String> mappedModIds;
+        private final List<String> launcherModIds;
         private final CachedData data;
 
         private Entry(
                 FileStamp stamp,
                 byte[] fingerprint,
                 List<String> configClasses,
-                List<String> fallbackMods) {
+                String metadataModId,
+                List<String> annotationModIds,
+                List<String> mappedModIds,
+                List<String> launcherModIds) {
             this.stamp = stamp;
             this.fingerprint = fingerprint;
             this.configClasses = configClasses;
-            this.fallbackMods = fallbackMods;
-            this.data = new CachedData(configClasses, fallbackMods);
+            this.metadataModId = metadataModId;
+            this.annotationModIds = annotationModIds;
+            this.mappedModIds = mappedModIds;
+            this.launcherModIds = launcherModIds;
+            this.data = new CachedData(
+                    configClasses, metadataModId, annotationModIds, mappedModIds, launcherModIds);
         }
 
         private Entry withStamp(FileStamp stamp) {
@@ -480,7 +508,10 @@ final class JarDiscoveryCache {
                     stamp,
                     this.fingerprint,
                     this.configClasses,
-                    this.fallbackMods);
+                    this.metadataModId,
+                    this.annotationModIds,
+                    this.mappedModIds,
+                    this.launcherModIds);
         }
 
         private CachedData data() {

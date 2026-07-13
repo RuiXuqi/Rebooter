@@ -30,4 +30,10 @@ public final class RegistryFixture {
             throw new AssertionError("Registry supplier did not execute exactly once");
         }
     }
+
+    public static void verifyNotEvaluatedDuringDiscovery() {
+        if (SUPPLIER_EVALUATIONS.get() != 0) {
+            throw new AssertionError("Registry supplier ran during early mod discovery");
+        }
+    }
 }

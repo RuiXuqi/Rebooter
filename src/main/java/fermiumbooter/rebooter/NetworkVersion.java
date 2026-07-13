@@ -7,7 +7,7 @@ import net.minecraftforge.fml.common.ModContainer;
 
 import java.lang.reflect.Field;
 
-public final class NetworkVersion {
+final class NetworkVersion {
     private static Field internalVersion;
     private static boolean failed;
 

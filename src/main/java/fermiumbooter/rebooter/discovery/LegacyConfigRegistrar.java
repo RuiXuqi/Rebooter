@@ -81,4 +81,10 @@ public final class LegacyConfigRegistrar {
     static int getWarningCount() {
         return warningCount;
     }
+
+    @VisibleForTesting
+    public static void resetForTesting() {
+        warningCount = 0;
+        ForgeConfigAccess.clearCompatibilityCache();
+    }
 }

@@ -1,5 +1,6 @@
 package fermiumbooter.rebooter;
 
+import com.google.common.annotations.VisibleForTesting;
 import fermiumbooter.config.FermiumBooterConfig;
 import fermiumbooter.rebooter.util.ForgeConfigAccess;
 import fermiumbooter.rebooter.util.GameDirectory;
@@ -14,8 +15,7 @@ public final class RebooterConfig {
     private final List<String> removals;
     // package - modIds
     private final Map<String, Set<String>> modDiscoveryMappings;
-    private final Set<String> modDiscoveryTargets;
-    private final Set<String> mixinConfigScanAllowlist;
+    private final Set<String> discoveryClassScanAllowlist;
 
     private RebooterConfig(
             boolean overrideCompatibilityChecks,
@@ -28,11 +28,8 @@ public final class RebooterConfig {
         this.additions = Collections.unmodifiableList(Arrays.asList(additions));
         this.removals = Collections.unmodifiableList(Arrays.asList(removals));
         this.modDiscoveryMappings = Collections.unmodifiableMap(parseModDiscoveryMappings(configuredMappings));
-        Set<String> targets = new HashSet<>();
-        this.modDiscoveryMappings.values().forEach(targets::addAll);
-        this.modDiscoveryTargets = Collections.unmodifiableSet(targets);
-        this.mixinConfigScanAllowlist = Collections.unmodifiableSet(
-                parsePackagePrefixes(configuredScanAllowlist, "Mixin config scan allowlist"));
+        this.discoveryClassScanAllowlist = Collections.unmodifiableSet(
+                parsePackagePrefixes(configuredScanAllowlist, "Discovery class scan allowlist"));
     }
 
     public static boolean overrideCompatibilityChecks() {
@@ -43,12 +40,8 @@ public final class RebooterConfig {
         return get().modDiscoveryMappings;
     }
 
-    public static Set<String> modDiscoveryTargets() {
-        return get().modDiscoveryTargets;
-    }
-
-    public static Set<String> mixinConfigScanAllowlist() {
-        return get().mixinConfigScanAllowlist;
+    public static Set<String> discoveryClassScanAllowlist() {
+        return get().discoveryClassScanAllowlist;
     }
 
     private static RebooterConfig get() {
@@ -58,9 +51,15 @@ public final class RebooterConfig {
                     FermiumBooterConfig.forcedEarlyMixinConfigAdditions,
                     FermiumBooterConfig.forcedEarlyMixinConfigRemovals,
                     FermiumBooterConfig.modDiscoveryPackageMappings,
-                    FermiumBooterConfig.mixinConfigScanAllowlist);
+                    FermiumBooterConfig.discoveryClassScanAllowlist);
         }
         return instance;
+    }
+
+    @VisibleForTesting
+    public static void resetForTesting() {
+        instance = null;
+        applied = false;
     }
 
     static void apply() {

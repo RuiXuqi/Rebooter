@@ -7,7 +7,7 @@ import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
         modid = Reference.MOD_ID,
         name = Reference.MOD_NAME,
         version = Rebooter.COMPAT_VERSION,
-        dependencies = "required-after:mixinbooter@[11.0,);",
+        dependencies = "required-after:mixinbooter@[8.0,);",
         acceptableRemoteVersions = "*",
         customProperties = {
                 @Mod.CustomProperty(k = "license", v = "The Unlicense"),

@@ -2,7 +2,6 @@ package testmod.verification;
 
 import testmod.TestMod;
 import testmod.fixture.registry.RegistryFixture;
-import zone.rong.mixinbooter.util.Environment;
 
 import static testmod.verification.RuntimeProbe.Case;
 
@@ -12,11 +11,6 @@ public final class RuntimeVerification {
     }
 
     public static void verify() {
-        String discoveryCache = System.getProperty("rebooter.discoveryCache");
-        if (Environment.inDev()
-                && (discoveryCache == null || !"false".equalsIgnoreCase(discoveryCache.trim()))) {
-            throw new AssertionError("Discovery cache was not disabled for a development run");
-        }
         RuntimeProbe.requireApplied(Case.FORCED_CONFIG_EARLY);
         RuntimeProbe.requireApplied(Case.REGISTRY_EARLY);
         RuntimeProbe.requireApplied(Case.REGISTRY_LATE);

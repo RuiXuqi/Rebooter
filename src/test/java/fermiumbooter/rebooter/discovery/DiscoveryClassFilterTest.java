@@ -7,13 +7,13 @@ import java.util.jar.JarEntry;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class MixinConfigClassFilterTest {
+class DiscoveryClassFilterTest {
 
     @Test
     void skipsEveryDefaultLibraryPrefix() {
-        for (String prefix : MixinConfigClassFilter.skippedClassPrefixes()) {
+        for (String prefix : DiscoveryClassFilter.skippedClassPrefixes()) {
             assertFalse(
-                    MixinConfigClassFilter.isScannable(
+                    DiscoveryClassFilter.isScannable(
                             new JarEntry(prefix + "LibraryClass.class"), Collections.emptySet()),
                     prefix);
         }
@@ -23,23 +23,23 @@ class MixinConfigClassFilterTest {
     void allowlistOverridesDefaultPrefixForASubpackage() {
         Set<String> allowlist = new HashSet<>(Collections.singletonList("org/spongepowered/example/"));
 
-        assertTrue(MixinConfigClassFilter.isScannable(
+        assertTrue(DiscoveryClassFilter.isScannable(
                 new JarEntry("org/spongepowered/example/Config.class"), allowlist));
-        assertFalse(MixinConfigClassFilter.isScannable(
+        assertFalse(DiscoveryClassFilter.isScannable(
                 new JarEntry("org/spongepowered/asm/Mixin.class"), allowlist));
 
-        assertTrue(MixinConfigClassFilter.isScannable(
+        assertTrue(DiscoveryClassFilter.isScannable(
                 new JarEntry("META-INF/example/Config.class"),
                 new HashSet<>(Collections.singletonList("META-INF/example/"))));
     }
 
     @Test
     void keepsInnerClassesButRejectsStructuralClassFiles() {
-        assertTrue(MixinConfigClassFilter.isScannable(
+        assertTrue(DiscoveryClassFilter.isScannable(
                 new JarEntry("example/Config$Nested.class"), Collections.emptySet()));
-        assertFalse(MixinConfigClassFilter.isScannable(
+        assertFalse(DiscoveryClassFilter.isScannable(
                 new JarEntry("module-info.class"), Collections.emptySet()));
-        assertFalse(MixinConfigClassFilter.isScannable(
+        assertFalse(DiscoveryClassFilter.isScannable(
                 new JarEntry("example/package-info.class"), Collections.emptySet()));
     }
 
@@ -53,11 +53,11 @@ class MixinConfigClassFilterTest {
         reordered.add("org/spongepowered/example/");
 
         assertEquals(
-                MixinConfigClassFilter.cacheProfile(first),
-                MixinConfigClassFilter.cacheProfile(reordered));
+                DiscoveryClassFilter.cacheProfile(first),
+                DiscoveryClassFilter.cacheProfile(reordered));
         assertNotEquals(
-                MixinConfigClassFilter.cacheProfile(first),
-                MixinConfigClassFilter.cacheProfile(Collections.emptySet()));
+                DiscoveryClassFilter.cacheProfile(first),
+                DiscoveryClassFilter.cacheProfile(Collections.emptySet()));
     }
 
     @Test
@@ -75,5 +75,7 @@ class MixinConfigClassFilterTest {
         assertNotEquals(
                 JarDiscovery.cacheProfile(Collections.emptySet(), first),
                 JarDiscovery.cacheProfile(Collections.emptySet(), changed));
+        assertTrue(JarDiscovery.cacheProfile(Collections.emptySet(), first)
+                .contains(ClassAnnotationScanner.FORGE_MOD_DESCRIPTOR));
     }
 }

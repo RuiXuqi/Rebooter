@@ -1,5 +1,6 @@
 package fermiumbooter.rebooter;
 
+import com.google.common.annotations.VisibleForTesting;
 import fermiumbooter.rebooter.discovery.JarDiscovery;
 import org.apache.commons.lang3.StringUtils;
 
@@ -15,6 +16,18 @@ public final class MixinRegistry {
     private static boolean lateHandedOff;
 
     private MixinRegistry() {
+    }
+
+    @VisibleForTesting
+    public static synchronized void resetForTesting() {
+        earlyMixins = new LinkedHashMap<>();
+        lateMixins = new LinkedHashMap<>();
+        rejectedMixins = new ArrayList<>();
+        prepared = false;
+        earlyHandedOff = false;
+        lateHandedOff = false;
+        RebooterConfig.resetForTesting();
+        JarDiscovery.resetForTesting();
     }
 
     public static void enqueue(boolean late, String... mixinConfigs) {

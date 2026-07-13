@@ -49,6 +49,7 @@ class JarDiscoveryCacheTest {
 
         assertTrue(JarDiscovery.getPrefilterScanCount() > 0);
         assertTrue(JarDiscovery.getEnumeratedEntryCount() > 0);
+        assertEquals(1, JarDiscovery.getFingerprintReadCount());
         Path cache = cacheFile();
         assertTrue(Files.isRegularFile(cache));
         assertTrue(contains(Files.readAllBytes(cache), Reference.VERSION.getBytes(StandardCharsets.UTF_8)));
@@ -56,12 +57,25 @@ class JarDiscoveryCacheTest {
                 Files.readAllBytes(cache),
                 classResource(CachedConfig.class).getBytes(StandardCharsets.UTF_8)));
 
-        JarDiscovery.clear();
+        JarDiscovery.resetForTesting();
         JarDiscovery.registerConfigs();
 
         assertEquals(0, JarDiscovery.getPrefilterScanCount());
         assertEquals(0, JarDiscovery.getEnumeratedEntryCount());
+        assertEquals(1, JarDiscovery.getFingerprintReadCount());
         assertTrue(Files.isRegularFile(jar));
+    }
+
+    @Test
+    void disabledCacheSkipsContentFingerprintingDuringDiscovery() throws Exception {
+        createFixtureJar();
+        System.setProperty("rebooter.discoveryCache", "false");
+        prepareGameDirectory();
+
+        JarDiscovery.registerConfigs();
+
+        assertTrue(JarDiscovery.getPrefilterScanCount() > 0);
+        assertEquals(0, JarDiscovery.getFingerprintReadCount());
     }
 
     @Test
@@ -69,7 +83,7 @@ class JarDiscoveryCacheTest {
         Path jar = createFixtureJar();
         prepareGameDirectory();
         JarDiscovery.registerConfigs();
-        JarDiscovery.clear();
+        JarDiscovery.resetForTesting();
 
         try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar))) {
             addFixtureClass(output);
@@ -91,7 +105,7 @@ class JarDiscoveryCacheTest {
         byte[] bytes = Files.readAllBytes(cache);
         bytes[bytes.length - 1] ^= 0x5A;
         Files.write(cache, bytes);
-        JarDiscovery.clear();
+        JarDiscovery.resetForTesting();
 
         JarDiscovery.registerConfigs();
 
@@ -110,7 +124,7 @@ class JarDiscoveryCacheTest {
         assertTrue(versionOffset >= 0);
         bytes[versionOffset] ^= 0x01;
         Files.write(cache, bytes);
-        JarDiscovery.clear();
+        JarDiscovery.resetForTesting();
 
         JarDiscovery.registerConfigs();
 
@@ -123,15 +137,15 @@ class JarDiscoveryCacheTest {
         Path jar = createFixtureJar();
         prepareGameDirectory();
         JarDiscovery.registerConfigs();
-        JarDiscovery.clear();
+        JarDiscovery.resetForTesting();
         Files.setLastModifiedTime(jar, FileTime.fromMillis(Files.getLastModifiedTime(jar).toMillis() + 2_000));
 
         JarDiscovery.registerConfigs();
 
-        assertTrue(JarDiscovery.getEnumeratedEntryCount() > 0);
+        assertEquals(0, JarDiscovery.getEnumeratedEntryCount());
         assertEquals(0, JarDiscovery.getPrefilterScanCount());
 
-        JarDiscovery.clear();
+        JarDiscovery.resetForTesting();
         JarDiscovery.registerConfigs();
 
         assertEquals(0, JarDiscovery.getEnumeratedEntryCount());
@@ -144,13 +158,16 @@ class JarDiscoveryCacheTest {
         Files.write(source, new byte[]{1, 2, 3});
         FileTime originalModifiedTime = Files.getLastModifiedTime(source);
         JarDiscoveryCache.FileStamp originalStamp = JarDiscoveryCache.stamp(source.toFile());
-        byte[] fingerprint = new byte[32];
+        byte[] fingerprint = JarDiscoveryCache.contentFingerprint(source.toFile());
         JarDiscoveryCache first = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
         first.record(
                 source.toFile(),
                 originalStamp,
                 fingerprint,
                 Collections.emptyList(),
+                null,
+                Collections.emptySet(),
+                Collections.emptySet(),
                 Collections.emptySet());
         first.save();
         Path replacement = this.gameDirectory.resolve("replacement.jar");
@@ -164,7 +181,37 @@ class JarDiscoveryCacheTest {
 
         JarDiscoveryCache reloaded = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
 
-        assertNull(reloaded.lookup(source.toFile(), JarDiscoveryCache.stamp(source.toFile())));
+        assertNull(reloaded.lookup(
+                source.toFile(),
+                JarDiscoveryCache.stamp(source.toFile()),
+                JarDiscoveryCache.contentFingerprint(source.toFile())));
+    }
+
+    @Test
+    void inPlaceContentChangeMissesTheFastPathWhenFileStateIsRestored() throws Exception {
+        Path source = this.gameDirectory.resolve("source.jar");
+        Files.write(source, new byte[]{1, 2, 3});
+        FileTime originalModifiedTime = Files.getLastModifiedTime(source);
+        JarDiscoveryCache first = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+        first.record(
+                source.toFile(),
+                JarDiscoveryCache.stamp(source.toFile()),
+                JarDiscoveryCache.contentFingerprint(source.toFile()),
+                Collections.emptyList(),
+                "old_mod",
+                Collections.emptySet(),
+                Collections.emptySet(),
+                Collections.emptySet());
+        first.save();
+
+        Files.write(source, new byte[]{4, 5, 6});
+        Files.setLastModifiedTime(source, originalModifiedTime);
+        JarDiscoveryCache reloaded = JarDiscoveryCache.load(this.gameDirectory.toFile(), "profile");
+
+        assertNull(reloaded.lookup(
+                source.toFile(),
+                JarDiscoveryCache.stamp(source.toFile()),
+                JarDiscoveryCache.contentFingerprint(source.toFile())));
     }
 
     @Test
@@ -177,6 +224,9 @@ class JarDiscoveryCacheTest {
                 JarDiscoveryCache.stamp(source.toFile()),
                 fingerprint,
                 Collections.singletonList("example/Config.class"),
+                null,
+                Collections.emptySet(),
+                Collections.emptySet(),
                 Collections.emptySet());
         first.save();
 
@@ -198,6 +248,9 @@ class JarDiscoveryCacheTest {
                 JarDiscoveryCache.stamp(source.toFile()),
                 fingerprint,
                 Collections.singletonList("example/Config.class"),
+                null,
+                Collections.emptySet(),
+                Collections.emptySet(),
                 Collections.emptySet());
         first.save();
 
@@ -208,14 +261,14 @@ class JarDiscoveryCacheTest {
     }
 
     @Test
-    void absentOrdinaryModDoesNotTriggerJarIndexing() throws Exception {
+    void absentOrdinaryModWaitsForCompleteJarIndexing() throws Exception {
         createFixtureJar();
         prepareGameDirectory();
 
         assertEquals(false, JarDiscovery.isModPresent("ordinary_optional_mod"));
 
-        assertEquals(0, JarDiscovery.getPrefilterScanCount());
-        assertEquals(false, Files.exists(cacheFile()));
+        assertTrue(JarDiscovery.getPrefilterScanCount() > 0);
+        assertTrue(Files.exists(cacheFile()));
     }
 
     @Test
@@ -234,6 +287,9 @@ class JarDiscoveryCacheTest {
                 stamp,
                 fingerprint,
                 Collections.singletonList(classResource(CachedConfig.class)),
+                null,
+                Collections.emptySet(),
+                Collections.emptySet(),
                 Collections.emptySet());
         cache.save();
 
@@ -250,7 +306,7 @@ class JarDiscoveryCacheTest {
     private void prepareGameDirectory() throws Exception {
         System.setProperty("rebooter.gameDir", this.gameDirectory.toString());
         ForgeTestEnvironment.clearInjectedGameDirectory();
-        JarDiscovery.clear();
+        JarDiscovery.resetForTesting();
     }
 
     private Path createFixtureJar() throws Exception {
@@ -302,6 +358,9 @@ class JarDiscoveryCacheTest {
                 JarDiscoveryCache.stamp(source),
                 new byte[32],
                 Collections.emptyList(),
+                null,
+                Collections.emptySet(),
+                Collections.emptySet(),
                 Collections.emptySet());
         cache.save();
         assertNotEquals(original.length, Files.size(cacheFile()));
