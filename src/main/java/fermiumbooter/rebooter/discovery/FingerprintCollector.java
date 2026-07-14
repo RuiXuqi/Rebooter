@@ -17,7 +17,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 final class FingerprintCollector {
-    private static final int WORKER_COUNT = 2;
+    private static final int WORKER_COUNT = 4;
     private static final AtomicInteger THREAD_NUMBER = new AtomicInteger();
 
     private FingerprintCollector() {
@@ -72,14 +72,13 @@ final class FingerprintCollector {
             return hashSequential(requests, firstFingerprinter);
         }
         try {
-            JarDiscoveryCache.ContentFingerprinter secondFingerprinter =
-                    new JarDiscoveryCache.ContentFingerprinter();
             List<Future<List<CompletedRequest>>> workers = new ArrayList<>(WORKER_COUNT);
-            workers.add(executor.submit(() -> hashRequests(requests, nextRequest, firstFingerprinter)));
-            workers.add(executor.submit(() -> hashRequests(
-                    requests,
-                    nextRequest,
-                    secondFingerprinter)));
+            for (int workerIndex = 0; workerIndex < WORKER_COUNT; workerIndex++) {
+                JarDiscoveryCache.ContentFingerprinter fingerprinter = workerIndex == 0
+                        ? firstFingerprinter
+                        : new JarDiscoveryCache.ContentFingerprinter();
+                workers.add(executor.submit(() -> hashRequests(requests, nextRequest, fingerprinter)));
+            }
 
             Map<File, Result> results = new HashMap<>();
             for (Future<List<CompletedRequest>> worker : workers) {
