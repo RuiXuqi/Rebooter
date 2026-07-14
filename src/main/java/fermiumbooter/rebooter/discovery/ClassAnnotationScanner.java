@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 
 final class ClassAnnotationScanner {
     private static final int SCANNER_VERSION = 1;
+    private static final int READ_CHUNK_SIZE = 1024;
     static final int MIXIN_CONFIG = 1;
     static final int FORGE_MOD = 1 << 1;
     static final String FORGE_MOD_DESCRIPTOR = "Lnet/minecraftforge/fml/common/Mod;";
@@ -167,7 +168,10 @@ final class ClassAnnotationScanner {
         }
         int read;
         do {
-            read = this.input.read(this.readBuffer, this.limit, this.readBuffer.length - this.limit);
+            read = this.input.read(
+                    this.readBuffer,
+                    this.limit,
+                    Math.min(READ_CHUNK_SIZE, this.readBuffer.length - this.limit));
         } while (read == 0);
         if (read < 0) throw new IOException("Unexpected end of class file");
         this.limit += read;

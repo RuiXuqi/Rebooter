@@ -43,6 +43,19 @@ class CurrentConfigReaderTest {
     }
 
     @Test
+    void previousLargeConstantPoolDoesNotIncreaseTheNextClassReadAhead() throws Exception {
+        ClassAnnotationScanner scanner = new ClassAnnotationScanner();
+        scanner.scan(new ByteArrayInputStream(classBytesWithUtf8(largeConstantPoolValue(), "")));
+        CountingInputStream input = new CountingInputStream(
+                new ByteArrayInputStream(classBytesWithUtf8("unrelated", "unused tail")));
+
+        ClassAnnotationScanner.ScanResult result = scanner.scan(input);
+
+        assertTrue(result.isEmpty());
+        assertTrue(input.bytesRead() <= 1024, "read-ahead must stay independent of replay buffer capacity");
+    }
+
+    @Test
     void prefilterReplaysTheConsumedPrefixToAsm() throws Exception {
         String resource = Fixture.class.getName().replace('.', '/') + ".class";
         ConfigReader.Result result;
@@ -156,6 +169,12 @@ class CurrentConfigReaderTest {
         output.write(tail.getBytes(StandardCharsets.UTF_8));
         output.close();
         return bytes.toByteArray();
+    }
+
+    private static String largeConstantPoolValue() {
+        char[] characters = new char[20 * 1024];
+        java.util.Arrays.fill(characters, 'x');
+        return new String(characters);
     }
 
     private static final class CountingInputStream extends FilterInputStream {
