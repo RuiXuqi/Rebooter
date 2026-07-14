@@ -9,7 +9,7 @@ import java.nio.charset.StandardCharsets;
 
 final class ClassAnnotationScanner {
     private static final int SCANNER_VERSION = 1;
-    private static final int READ_CHUNK_SIZE = 1024;
+    private static final int READ_CHUNK_SIZE = 2 * 1024;
     static final int MIXIN_CONFIG = 1;
     static final int FORGE_MOD = 1 << 1;
     static final String FORGE_MOD_DESCRIPTOR = "Lnet/minecraftforge/fml/common/Mod;";

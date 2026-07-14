@@ -52,7 +52,7 @@ class CurrentConfigReaderTest {
         ClassAnnotationScanner.ScanResult result = scanner.scan(input);
 
         assertTrue(result.isEmpty());
-        assertTrue(input.bytesRead() <= 1024, "read-ahead must stay independent of replay buffer capacity");
+        assertTrue(input.bytesRead() <= 2 * 1024, "read-ahead must stay independent of replay buffer capacity");
     }
 
     @Test
