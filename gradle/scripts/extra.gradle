@@ -73,3 +73,19 @@ testmodRunDirectories.each { taskName, runDirectory ->
         }
     }
 }
+
+base {
+    archivesName = 'rebooter'
+}
+
+tasks.named('jar') {
+    archiveClassifier.set('dev')
+}
+
+tasks.named('shadowJar') {
+    archiveClassifier.set('')
+}
+
+tasks.named('reobfJar') {
+    archiveBaseName.set('`rebooter')
+}

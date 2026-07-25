@@ -7,8 +7,8 @@ complete freedom, backed by MixinBooter.
 
 For users, remove FermiumBooter, then install Rebooter with
 [MixinBooter](https://github.com/CleanroomMC/MixinBooter) 10.x or higher. FermiumBooter-dependent mods should then
-function normally. Make sure the leading dot in the file name is present; otherwise, a `ClassNotFoundException` may be
-thrown. When using [Cleanroom Loader](https://github.com/CleanroomMC/Cleanroom), MixinBooter is not needed.
+function normally. Make sure the leading backtick in the file name is present; otherwise, a `ClassNotFoundException` may
+be thrown. When using [Cleanroom Loader](https://github.com/CleanroomMC/Cleanroom), MixinBooter is not needed.
 
 For developers, we recommend making your mod depend directly on
 [MixinBooter](https://github.com/CleanroomMC/MixinBooter) and
