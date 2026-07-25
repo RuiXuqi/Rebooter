@@ -1,19 +1,11 @@
 package fermiumbooter.rebooter.discovery;
 
 import fermiumbooter.rebooter.Reference;
-import org.objectweb.asm.AnnotationVisitor;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.FieldVisitor;
-import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.*;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 final class LegacyConfigReader extends ClassVisitor {
     private static final String CONFIG_NAME_DESCRIPTOR = "Lnet/minecraftforge/common/config/Config$Name;";

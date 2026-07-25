@@ -1,11 +1,7 @@
 package fermiumbooter.rebooter.discovery;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.objectweb.asm.AnnotationVisitor;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.FieldVisitor;
-import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.*;
 
 import javax.annotation.Nullable;
 import java.io.IOException;

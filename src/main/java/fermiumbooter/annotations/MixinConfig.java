@@ -60,8 +60,8 @@ public @interface MixinConfig {
     @Target(ElementType.FIELD)
     @interface LateMixin {
         /**
-         * @since 1.2.0
          * @return the Mixin configuration resource name
+         * @since 1.2.0
          */
         String name();
     }
