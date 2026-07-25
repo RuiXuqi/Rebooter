@@ -28,7 +28,7 @@ class CurrentConfigReaderTest {
         byte[] classBytes = classBytesWithUtf8("unrelated", MIXIN_CONFIG);
         CountingInputStream input = new CountingInputStream(new ByteArrayInputStream(classBytes));
 
-        boolean found = new ClassAnnotationScanner().scan(input).has(ClassAnnotationScanner.MIXIN_CONFIG);
+        boolean found = new ClassDescriptorPrefilter().scan(input).hasMixinConfig();
 
         assertFalse(found);
         assertTrue(input.bytesRead() < classBytes.length, "method bodies must not be decompressed during prefiltering");
@@ -38,48 +38,48 @@ class CurrentConfigReaderTest {
     void prefilterFindsTheAnnotationDescriptorInTheConstantPool() throws Exception {
         byte[] classBytes = classBytesWithUtf8(MIXIN_CONFIG, "unused tail");
 
-        assertTrue(new ClassAnnotationScanner().scan(new ByteArrayInputStream(classBytes))
-                .has(ClassAnnotationScanner.MIXIN_CONFIG));
+        assertTrue(new ClassDescriptorPrefilter().scan(new ByteArrayInputStream(classBytes))
+                .hasMixinConfig());
     }
 
     @Test
     void previousLargeConstantPoolDoesNotIncreaseTheNextClassReadAhead() throws Exception {
-        ClassAnnotationScanner scanner = new ClassAnnotationScanner();
+        ClassDescriptorPrefilter scanner = new ClassDescriptorPrefilter();
         scanner.scan(new ByteArrayInputStream(classBytesWithUtf8(largeConstantPoolValue(), "")));
         CountingInputStream input = new CountingInputStream(
                 new ByteArrayInputStream(classBytesWithUtf8("unrelated", "unused tail")));
 
-        ClassAnnotationScanner.ScanResult result = scanner.scan(input);
+        ClassDescriptorPrefilter.Match result = scanner.scan(input);
 
         assertTrue(result.isEmpty());
         assertTrue(input.bytesRead() <= 2 * 1024, "read-ahead must stay independent of replay buffer capacity");
     }
 
     @Test
-    void prefilterReplaysTheConsumedPrefixToAsm() throws Exception {
+    void classScannerReadsMetadataAfterPrefilterMatch() throws Exception {
         String resource = Fixture.class.getName().replace('.', '/') + ".class";
-        ConfigReader.Result result;
+        ClassScanResult result;
         try (InputStream input = Objects.requireNonNull(
                 Fixture.class.getClassLoader().getResourceAsStream(resource), resource)) {
-            ClassAnnotationScanner.ScanResult scan = new ClassAnnotationScanner().scan(input);
-            result = ConfigReader.scan(scan.classBytes());
+            result = new ClassMetadataScanner().scan(input, -1);
         }
 
-        assertNotNull(result);
-        assertEquals("scanner-fixture", result.configName());
-        assertEquals(1, result.toggles().size());
+        assertTrue(result.hasMetadata());
+        assertNotNull(result.configResult());
+        assertEquals("scanner-fixture", result.configResult().configName());
+        assertEquals(1, result.configResult().toggles().size());
     }
 
     @Test
     void usesJvmFieldNameWhenConfigNameAnnotationIsMissing() throws Exception {
-        ConfigReader.Result result = scan(FieldNameFixture.class);
+        DiscoveredConfig result = scan(FieldNameFixture.class);
 
         assertEquals("enabled", result.toggles().get(0).configFieldName());
     }
 
     @Test
     void usesJvmFieldNameWhenConfigNameAnnotationIsEmpty() throws Exception {
-        ConfigReader.Result result = scan(EmptyConfigNameFixture.class);
+        DiscoveredConfig result = scan(EmptyConfigNameFixture.class);
 
         assertEquals("enabled", result.toggles().get(0).configFieldName());
     }
@@ -95,8 +95,10 @@ class CurrentConfigReaderTest {
     }
 
     private static void assertCompatibilityContainer(String descriptor) throws Exception {
-        ConfigReader.Result result = ConfigReader.scan(new ByteArrayInputStream(compatibilityContainerFixture(descriptor)));
+        DiscoveredConfig result = CurrentConfigReader.scan(
+                new ByteArrayInputStream(compatibilityContainerFixture(descriptor)));
 
+        assertNotNull(result);
         java.util.List<CompatRule> rules = result.toggles().get(0).compatibilityRules();
         assertEquals(2, rules.size());
         assertEquals("forge", rules.get(0).modid());
@@ -109,11 +111,11 @@ class CurrentConfigReaderTest {
         assertEquals("", rules.get(1).reason());
     }
 
-    private static ConfigReader.Result scan(Class<?> type) throws Exception {
+    private static DiscoveredConfig scan(Class<?> type) throws Exception {
         String resource = type.getName().replace('.', '/') + ".class";
         try (InputStream input = Objects.requireNonNull(
                 type.getClassLoader().getResourceAsStream(resource), resource)) {
-            return ConfigReader.scan(input);
+            return CurrentConfigReader.scan(input);
         }
     }
 

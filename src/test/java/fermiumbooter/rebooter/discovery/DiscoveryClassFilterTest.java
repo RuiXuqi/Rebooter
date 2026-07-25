@@ -76,6 +76,6 @@ class DiscoveryClassFilterTest {
                 JarDiscovery.cacheProfile(Collections.emptySet(), first),
                 JarDiscovery.cacheProfile(Collections.emptySet(), changed));
         assertTrue(JarDiscovery.cacheProfile(Collections.emptySet(), first)
-                .contains(ClassAnnotationScanner.FORGE_MOD_DESCRIPTOR));
+                .contains(ClassDescriptorPrefilter.FORGE_MOD_DESCRIPTOR));
     }
 }

@@ -502,10 +502,10 @@ class JarDiscoveryCacheTest {
         return type.getName().replace('.', '/') + ".class";
     }
 
-    private static ConfigReader.Result cachedResult() {
-        return new ConfigReader.Result(
+    private static DiscoveredConfig cachedResult() {
+        return new DiscoveredConfig(
                 "cached-config",
-                Collections.singletonList(new ConfigReader.Toggle(
+                Collections.singletonList(new DiscoveredConfig.Toggle(
                         "Enabled Field",
                         "mixins.cached.early.json",
                         "mixins.cached.late.json",
@@ -518,10 +518,10 @@ class JarDiscoveryCacheTest {
                                 "cached reason")))));
     }
 
-    private static void assertCachedResult(ConfigReader.Result result) {
+    private static void assertCachedResult(DiscoveredConfig result) {
         assertEquals("cached-config", result.configName());
         assertEquals(1, result.toggles().size());
-        ConfigReader.Toggle toggle = result.toggles().get(0);
+        DiscoveredConfig.Toggle toggle = result.toggles().get(0);
         assertEquals("Enabled Field", toggle.configFieldName());
         assertEquals("mixins.cached.early.json", toggle.earlyMixinName());
         assertEquals("mixins.cached.late.json", toggle.lateMixinName());

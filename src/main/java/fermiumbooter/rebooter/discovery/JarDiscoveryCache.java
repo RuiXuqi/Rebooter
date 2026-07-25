@@ -125,7 +125,7 @@ final class JarDiscoveryCache {
             File source,
             FileStamp stamp,
             byte[] fingerprint,
-            List<ConfigReader.Result> configResults,
+            List<DiscoveredConfig> configResults,
             String metadataModId,
             Set<String> annotationModIds,
             Set<String> mappedModIds,
@@ -266,7 +266,7 @@ final class JarDiscoveryCache {
                 input.readFully(fingerprint);
                 String metadataModId = readString(input);
                 if (metadataModId.isEmpty()) metadataModId = null;
-                List<ConfigReader.Result> configResults = readConfigResults(input, nestedCounts);
+                List<DiscoveredConfig> configResults = readConfigResults(input, nestedCounts);
                 List<String> annotationModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "annotation mod ID count");
                 totalModIds = checkedTotal(totalModIds, annotationModIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
                 List<String> mappedModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "mapped mod ID count");
@@ -306,7 +306,7 @@ final class JarDiscoveryCache {
     }
 
     private static void validateConfigResults(
-            List<ConfigReader.Result> results,
+            List<DiscoveredConfig> results,
             NestedCounts counts) throws IOException {
         checkCount(results.size(), MAX_CONFIG_RESULTS_PER_JAR, "config result count");
         counts.configResults = checkedTotal(
@@ -314,9 +314,9 @@ final class JarDiscoveryCache {
                 results.size(),
                 MAX_CONFIG_RESULTS_TOTAL,
                 "total config result count");
-        for (ConfigReader.Result result : results) {
+        for (DiscoveredConfig result : results) {
             checkNonEmptyString(result.configName(), "config name");
-            List<ConfigReader.Toggle> toggles = result.toggles();
+            List<DiscoveredConfig.Toggle> toggles = result.toggles();
             checkCount(toggles.size(), MAX_TOGGLES_PER_CONFIG, "config toggle count");
             if (toggles.isEmpty()) throw new IOException("config result has no toggles");
             counts.toggles = checkedTotal(
@@ -324,7 +324,7 @@ final class JarDiscoveryCache {
                     toggles.size(),
                     MAX_TOGGLES_TOTAL,
                     "total config toggle count");
-            for (ConfigReader.Toggle toggle : toggles) {
+            for (DiscoveredConfig.Toggle toggle : toggles) {
                 checkNonEmptyString(toggle.configFieldName(), "config field name");
                 checkString(toggle.earlyMixinName());
                 checkString(toggle.lateMixinName());
@@ -345,12 +345,12 @@ final class JarDiscoveryCache {
 
     private static void writeConfigResults(
             DataOutputStream output,
-            List<ConfigReader.Result> results) throws IOException {
+            List<DiscoveredConfig> results) throws IOException {
         output.writeInt(results.size());
-        for (ConfigReader.Result result : results) {
+        for (DiscoveredConfig result : results) {
             writeString(output, result.configName());
             output.writeInt(result.toggles().size());
-            for (ConfigReader.Toggle toggle : result.toggles()) {
+            for (DiscoveredConfig.Toggle toggle : result.toggles()) {
                 writeString(output, toggle.configFieldName());
                 writeString(output, toggle.earlyMixinName());
                 writeString(output, toggle.lateMixinName());
@@ -367,7 +367,7 @@ final class JarDiscoveryCache {
         }
     }
 
-    private static List<ConfigReader.Result> readConfigResults(
+    private static List<DiscoveredConfig> readConfigResults(
             DataInputStream input,
             NestedCounts counts) throws IOException {
         int resultCount = readCount(input, MAX_CONFIG_RESULTS_PER_JAR, "config result count");
@@ -376,7 +376,7 @@ final class JarDiscoveryCache {
                 resultCount,
                 MAX_CONFIG_RESULTS_TOTAL,
                 "total config result count");
-        List<ConfigReader.Result> results = new ArrayList<>(resultCount);
+        List<DiscoveredConfig> results = new ArrayList<>(resultCount);
         for (int resultIndex = 0; resultIndex < resultCount; resultIndex++) {
             String configName = readString(input);
             checkNonEmptyString(configName, "config name");
@@ -387,7 +387,7 @@ final class JarDiscoveryCache {
                     toggleCount,
                     MAX_TOGGLES_TOTAL,
                     "total config toggle count");
-            List<ConfigReader.Toggle> toggles = new ArrayList<>(toggleCount);
+            List<DiscoveredConfig.Toggle> toggles = new ArrayList<>(toggleCount);
             for (int toggleIndex = 0; toggleIndex < toggleCount; toggleIndex++) {
                 String fieldName = readString(input);
                 checkNonEmptyString(fieldName, "config field name");
@@ -409,14 +409,14 @@ final class JarDiscoveryCache {
                             input.readBoolean(),
                             readString(input)));
                 }
-                toggles.add(new ConfigReader.Toggle(
+                toggles.add(new DiscoveredConfig.Toggle(
                         fieldName,
                         earlyMixin,
                         lateMixin,
                         defaultValue,
                         rules));
             }
-            results.add(new ConfigReader.Result(configName, toggles));
+            results.add(new DiscoveredConfig(configName, toggles));
         }
         return results;
     }
@@ -513,14 +513,14 @@ final class JarDiscoveryCache {
     }
 
     static final class CachedData {
-        private final List<ConfigReader.Result> configResults;
+        private final List<DiscoveredConfig> configResults;
         private final String metadataModId;
         private final List<String> annotationModIds;
         private final List<String> mappedModIds;
         private final List<String> launcherModIds;
 
         private CachedData(
-                List<ConfigReader.Result> configResults,
+                List<DiscoveredConfig> configResults,
                 String metadataModId,
                 List<String> annotationModIds,
                 List<String> mappedModIds,
@@ -532,7 +532,7 @@ final class JarDiscoveryCache {
             this.launcherModIds = launcherModIds;
         }
 
-        List<ConfigReader.Result> configResults() {
+        List<DiscoveredConfig> configResults() {
             return this.configResults;
         }
 
@@ -590,7 +590,7 @@ final class JarDiscoveryCache {
     private static final class Entry {
         private final FileStamp stamp;
         private final byte[] fingerprint;
-        private final List<ConfigReader.Result> configResults;
+        private final List<DiscoveredConfig> configResults;
         private final String metadataModId;
         private final List<String> annotationModIds;
         private final List<String> mappedModIds;
@@ -600,7 +600,7 @@ final class JarDiscoveryCache {
         private Entry(
                 FileStamp stamp,
                 byte[] fingerprint,
-                List<ConfigReader.Result> configResults,
+                List<DiscoveredConfig> configResults,
                 String metadataModId,
                 List<String> annotationModIds,
                 List<String> mappedModIds,

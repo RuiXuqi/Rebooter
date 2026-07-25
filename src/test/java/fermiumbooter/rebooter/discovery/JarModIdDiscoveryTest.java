@@ -92,11 +92,11 @@ class JarModIdDiscoveryTest {
     @Test
     void oneAsmReadExtractsMixinConfigAndModMetadataTogether() throws Exception {
         byte[] classBytes = modAndConfigClass("fixture/Combined", "combined_mod");
-        ClassAnnotationScanner.ScanResult prefiltered = new ClassAnnotationScanner()
+        ClassDescriptorPrefilter.Match prefiltered = new ClassDescriptorPrefilter()
                 .scan(new ByteArrayInputStream(classBytes), classBytes.length);
 
-        ClassMetadataReader.Metadata metadata = ClassMetadataReader.scan(
-                prefiltered.classBytes(), prefiltered.flags());
+        ClassScanResult metadata = AsmClassMetadataReader.read(
+                prefiltered.classBytes(), prefiltered.annotationKinds());
 
         assertEquals("combined_mod", metadata.modId());
         assertNotNull(metadata.configResult());
@@ -238,7 +238,7 @@ class JarModIdDiscoveryTest {
         AnnotationVisitor mod = writer.visitAnnotation(FORGE_MOD, true);
         mod.visit("modid", modId);
         mod.visitEnd();
-        AnnotationVisitor config = writer.visitAnnotation(ConfigReader.MIXIN_CONFIG, true);
+        AnnotationVisitor config = writer.visitAnnotation(CurrentConfigReader.MIXIN_CONFIG_DESCRIPTOR, true);
         config.visit("name", "combined-config");
         config.visitEnd();
         FieldVisitor field = writer.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "enabled", "Z", null, null);

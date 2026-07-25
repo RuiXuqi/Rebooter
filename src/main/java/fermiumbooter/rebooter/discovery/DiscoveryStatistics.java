@@ -58,34 +58,38 @@ final class DiscoveryStatistics {
     }
 
     void fingerprint(long bytes, long nanos) {
-        if (!this.enabled) return;
         this.fingerprintCount++;
+        if (!this.enabled) return;
         this.fingerprintBytes += bytes;
         this.fingerprintNanos += nanos;
     }
 
     void fingerprintBatch(int count, long bytes, long nanos) {
-        if (!this.enabled) return;
         this.fingerprintCount += count;
+        if (!this.enabled) return;
         this.fingerprintBytes += bytes;
         this.fingerprintNanos += nanos;
     }
 
     void entryEnumeration(long nanos) {
-        if (!this.enabled) return;
         this.entryCount++;
+        if (!this.enabled) return;
         this.entryEnumerationNanos += nanos;
     }
 
-    void classFilterAndPrefilter(long nanos, boolean prefiltered) {
+    void classFilter(long nanos) {
+        if (this.enabled) this.classFilterAndPrefilterNanos += nanos;
+    }
+
+    void prefilter(long nanos) {
+        this.prefilterCount++;
         if (!this.enabled) return;
-        if (prefiltered) this.prefilterCount++;
         this.classFilterAndPrefilterNanos += nanos;
     }
 
     void fullClassReadAndAsm(long nanos) {
-        if (!this.enabled) return;
         this.asmCount++;
+        if (!this.enabled) return;
         this.fullClassReadAndAsmNanos += nanos;
     }
 
@@ -133,6 +137,22 @@ final class DiscoveryStatistics {
                 "Discovery config stats: results={} config+compat={}ms",
                 this.configResultCount,
                 millis(this.configCompatNanos));
+    }
+
+    int fingerprintCount() {
+        return this.fingerprintCount;
+    }
+
+    int entryCount() {
+        return this.entryCount;
+    }
+
+    int prefilterCount() {
+        return this.prefilterCount;
+    }
+
+    int asmCount() {
+        return this.asmCount;
     }
 
     private static long millis(long nanos) {
