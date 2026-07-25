@@ -23,6 +23,7 @@ public abstract class FermiumRegistryAPI {
      *
      * @param late         {@code false} for early loading or {@code true} for late loading
      * @param mixinConfigs Mixin configuration resource names
+     * @since 1.0.0
      */
     public static void enqueueMixin(boolean late, String... mixinConfigs) {
         MixinRegistry.enqueue(late, mixinConfigs);
@@ -33,6 +34,7 @@ public abstract class FermiumRegistryAPI {
      *
      * @param late        {@code false} for early loading or {@code true} for late loading
      * @param mixinConfig Mixin configuration resource name
+     * @since 1.0.0
      */
     public static void enqueueMixin(boolean late, String mixinConfig) {
         enqueueMixin(late, mixinConfig, true);
@@ -44,6 +46,7 @@ public abstract class FermiumRegistryAPI {
      * @param late        {@code false} for early loading or {@code true} for late loading
      * @param mixinConfig Mixin configuration resource name
      * @param enabled     whether the configuration is eligible for loading
+     * @since 1.0.0
      */
     public static void enqueueMixin(boolean late, String mixinConfig, boolean enabled) {
         MixinRegistry.enqueue(late, mixinConfig, enabled);
@@ -56,6 +59,7 @@ public abstract class FermiumRegistryAPI {
      * @param late        {@code false} for early loading or {@code true} for late loading
      * @param mixinConfig Mixin configuration resource name
      * @param enabled     deferred eligibility check
+     * @since 1.0.0
      */
     public static void enqueueMixin(boolean late, String mixinConfig, Supplier<Boolean> enabled) {
         MixinRegistry.enqueue(late, mixinConfig, enabled);
@@ -65,6 +69,7 @@ public abstract class FermiumRegistryAPI {
      * Rejects a configuration name in both phases without evaluating any of its suppliers.
      *
      * @param mixinConfig Mixin configuration resource name
+     * @since 1.0.0
      */
     public static void removeMixin(String mixinConfig) {
         MixinRegistry.reject(mixinConfig);
@@ -75,6 +80,7 @@ public abstract class FermiumRegistryAPI {
      *
      * @param modId mod id to query, case-insensitive
      * @return {@code true} when the mod is available
+     * @since 1.2.0
      */
     public static boolean isModPresent(String modId) {
         return JarDiscovery.isModPresent(modId);
