@@ -72,14 +72,13 @@ public final class LegacyConfigRegistrar {
         }
     }
 
-    @VisibleForTesting
-    static void clearConfigCache() {
-        ForgeConfigAccess.clearCompatibilityCache();
+    public static int getWarningCount() {
+        return warningCount;
     }
 
     @VisibleForTesting
-    static int getWarningCount() {
-        return warningCount;
+    static void clearConfigCache() {
+        ForgeConfigAccess.clearCompatibilityCache();
     }
 
     @VisibleForTesting

@@ -1,7 +1,12 @@
+fermiumbooter.toast.compatibilityWarnings.title=Rebooter：%d 个兼容性警告
+fermiumbooter.toast.compatibilityWarnings.description=详情请查看日志。
+
 fermiumbooter.config.enableCustomNetworkVersion=启用自定义网络版本
-fermiumbooter.config.enableCustomNetworkVersion.tooltip=使用配置的网络版本替代兼容版本。\n这会更改模组容器公开的版本，不会更改模组兼容性检查。
+fermiumbooter.config.enableCustomNetworkVersion.tooltip=使用配置的网络版本替代兼容版本。\n这会更改模组容器公开的版本，不会更改本地的模组兼容性检查。
 fermiumbooter.config.customNetworkVersion=自定义网络版本
 fermiumbooter.config.customNetworkVersion.tooltip=启用自定义网络版本时，模组容器公开的版本。
+fermiumbooter.config.suppressMixinCompatibilityWarningsRender=隐藏 Mixin 配置兼容性警告提示
+fermiumbooter.config.suppressMixinCompatibilityWarningsRender.tooltip=不显示报告 Mixin 兼容性警告的游戏内提示。
 fermiumbooter.config.overrideMixinCompatibilityChecks=覆盖 Mixin 配置兼容性检查
 fermiumbooter.config.overrideMixinCompatibilityChecks.tooltip=跳过已启用、带注解的 Mixin 开关的 CompatHandling 要求。\n兼容性检查失败时，既不会禁用 Mixin，也不会产生警告。
 fermiumbooter.config.forcedEarlyMixinConfigAdditions=强制添加早期 Mixin 配置

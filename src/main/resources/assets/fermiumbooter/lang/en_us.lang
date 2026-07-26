@@ -1,7 +1,12 @@
+fermiumbooter.toast.compatibilityWarnings.title=Rebooter: %d compact warnings
+fermiumbooter.toast.compatibilityWarnings.description=Check the log for more info.
+
 fermiumbooter.config.enableCustomNetworkVersion=Enable Custom Network Version
-fermiumbooter.config.enableCustomNetworkVersion.tooltip=Uses the configured network version instead of compat version.\nThis changes the version exposed through the mod container, not mod compat checks.
+fermiumbooter.config.enableCustomNetworkVersion.tooltip=Uses the configured network version instead of compat version.\nThis changes the version exposed through the mod container, not local mod compat checks.
 fermiumbooter.config.customNetworkVersion=Custom Network Version
 fermiumbooter.config.customNetworkVersion.tooltip=Version exposed through the mod container when the custom network version is enabled.
+fermiumbooter.config.suppressMixinCompatibilityWarningsRender=Suppress Mixin Compatibility Warning Toast
+fermiumbooter.config.suppressMixinCompatibilityWarningsRender.tooltip=Prevents the in-game toast that reports Rebooter compatibility warnings.
 fermiumbooter.config.overrideMixinCompatibilityChecks=Override Mixin Config Compatibility Checks
 fermiumbooter.config.overrideMixinCompatibilityChecks.tooltip=Skips CompatHandling requirements when an annotated Mixin toggle is enabled.\nFailed compatibility checks will neither disable the Mixin nor produce warnings.
 fermiumbooter.config.forcedEarlyMixinConfigAdditions=Forced Early Mixin Config Additions

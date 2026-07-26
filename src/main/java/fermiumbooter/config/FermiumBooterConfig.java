@@ -17,7 +17,7 @@ public final class FermiumBooterConfig {
     @Config.Name("Enable Custom Network Version")
     @Config.Comment({
             "Uses the configured network version instead of compat version.",
-            "This changes the version exposed through the mod container, not mod compat checks."
+            "This changes the version exposed through the mod container, not local mod compat checks."
     })
     public static boolean enableCustomNetworkVersion = false;
 
@@ -25,6 +25,11 @@ public final class FermiumBooterConfig {
     @Config.Name("Custom Network Version")
     @Config.Comment("Version exposed through the mod container when the custom network version is enabled.")
     public static String customNetworkVersion = Rebooter.COMPAT_VERSION;
+
+    @Config.LangKey(PREFIX + "suppressMixinCompatibilityWarningsRender")
+    @Config.Name("Suppress Mixin Compatibility Warnings Render")
+    @Config.Comment("Prevents the in-game toast that reports Mixin config compatibility warnings.")
+    public static boolean suppressMixinCompatibilityWarningsRender = true;
 
     @Config.LangKey(PREFIX + "overrideMixinCompatibilityChecks")
     @Config.RequiresMcRestart
@@ -78,6 +83,7 @@ public final class FermiumBooterConfig {
     public static void resetForTesting() {
         enableCustomNetworkVersion = false;
         customNetworkVersion = Rebooter.COMPAT_VERSION;
+        suppressMixinCompatibilityWarningsRender = true;
         overrideMixinCompatibilityChecks = false;
         forcedEarlyMixinConfigAdditions = new String[]{};
         forcedEarlyMixinConfigRemovals = new String[]{};
