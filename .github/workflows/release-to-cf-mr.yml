@@ -29,18 +29,18 @@ jobs:
         with:
           # Only include this section if you wish to publish
           # your assets on Modrinth.
-          modrinth-id: placeholder
-          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          #modrinth-id: placeholder
+          #modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
 
           # Only include this section if you wish to publish
           # your assets on CurseForge.
-          curseforge-id: placeholder
+          curseforge-id: 1625784
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
 
           files: |
             release-assets/*.jar
           loaders: forge
-          environment: client | server
+          environment: client? | server?
           game-versions: 1.12.2
           java: |
             8
