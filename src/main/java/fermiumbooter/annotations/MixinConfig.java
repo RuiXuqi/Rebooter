@@ -3,8 +3,14 @@ package fermiumbooter.annotations;
 import java.lang.annotation.*;
 
 /**
- * Marks a Forge configuration class {@link net.minecraftforge.common.config.Config}
- * for automatic Mixin registration under the named cfg file.
+ * Declares a cfg file whose Mixin toggles are discovered automatically from this class's bytecode.
+ * Boolean fields annotated with {@link MixinToggle @MixinToggle} are read when Rebooter prepares Mixin
+ * registration; enabled fields enqueue their declared early and late Mixin resources. The annotated class
+ * is not loaded during discovery.
+ *
+ * <p>The cfg property for a toggle is named by its {@link net.minecraftforge.common.config.Config.Name @Config.Name}
+ * value when nonblank, or by its Java field name otherwise. A {@link net.minecraftforge.common.config.Config @Config}
+ * annotation is not required for automatic discovery.
  *
  * @since 1.2.0
  */
@@ -13,18 +19,19 @@ import java.lang.annotation.*;
 @Target(ElementType.TYPE)
 public @interface MixinConfig {
     /**
-     * @return the cfg file name without its {@code .cfg} suffix
+     * @return nonblank cfg file name without its {@code .cfg} suffix
      * @since 1.3.0
      */
     String name();
 
     /**
-     * Marks a field whose value is a nested configuration object inspected by registration.
+     * Legacy marker for a nested configuration object inspected by explicit legacy registration.
+     * Automatic discovery does not traverse {@code @SubInstance} fields.
      *
      * @see fermiumbooter.FermiumRegistryAPI#registerAnnotatedMixinConfig(Class, Object)
      * @since 1.2.0
-     * @deprecated 1.3.0. Replaced by automatic scanning, which uses
-     * {@link fermiumbooter.annotations.MixinConfig} model instead.
+     * @deprecated since 1.3.0; automatic discovery scans {@link MixinConfig} classes and their
+     * {@link MixinToggle} fields directly.
      */
     @Deprecated
     @Retention(RetentionPolicy.RUNTIME)
@@ -33,41 +40,47 @@ public @interface MixinConfig {
     }
 
     /**
-     * Associates a boolean configuration field with an early Mixin configuration.
+     * Legacy marker associating a boolean configuration field with an early Mixin resource.
+     * It is processed only by explicit legacy registration, not automatic discovery.
      *
      * @since 1.2.0
-     * @deprecated 1.3.0. Use {@link MixinToggle#earlyMixin()} instead.
+     * @deprecated since 1.3.0; use {@link MixinToggle#earlyMixin()}.
      */
     @Deprecated
     @Retention(RetentionPolicy.RUNTIME)
     @Target(ElementType.FIELD)
     @interface EarlyMixin {
         /**
-         * @return the Mixin configuration resource name
+         * @return nonblank Mixin configuration resource name
          * @since 1.2.0
          */
         String name();
     }
 
     /**
-     * Associates a boolean configuration field with a late Mixin configuration.
+     * Legacy marker associating a boolean configuration field with a late Mixin resource.
+     * It is processed only by explicit legacy registration, not automatic discovery.
      *
      * @since 1.2.0
-     * @deprecated 1.3.0. Use {@link MixinToggle#lateMixin()} instead.
+     * @deprecated since 1.3.0; use {@link MixinToggle#lateMixin()}.
      */
     @Deprecated
     @Retention(RetentionPolicy.RUNTIME)
     @Target(ElementType.FIELD)
     @interface LateMixin {
         /**
-         * @return the Mixin configuration resource name
+         * @return nonblank Mixin configuration resource name
          * @since 1.2.0
          */
         String name();
     }
 
     /**
-     * Defines the early and/or late Mixin resources controlled by an automatically scanned field.
+     * Defines the early and/or late Mixin resources controlled by an automatically discovered boolean field.
+     * At least one resource name must be nonblank for the toggle to enqueue a Mixin configuration.
+     *
+     * <p>The value stored in the cfg file determines whether the resources are registered. When the property
+     * is absent, {@link #defaultValue()} is used; the field's Java initializer is not consulted.
      *
      * @since 1.3.0
      */
@@ -75,27 +88,28 @@ public @interface MixinConfig {
     @Target(ElementType.FIELD)
     @interface MixinToggle {
         /**
-         * @return the early Mixin resource name, or an empty string when none is registered
+         * @return early Mixin resource name, or an empty string when no early resource is registered
          * @since 1.3.0
          */
         String earlyMixin() default "";
 
         /**
-         * @return the late Mixin resource name, or an empty string when none is registered
+         * @return late Mixin resource name, or an empty string when no late resource is registered
          * @since 1.3.0
          */
         String lateMixin() default "";
 
         /**
-         * @return the field value used when no matching cfg property exists
+         * @return value used when no matching cfg property exists
          * @since 1.3.0
          */
         boolean defaultValue();
     }
 
     /**
-     * Defines a mod-presence condition that may disable its annotated Mixin toggle.
-     * Repeat this annotation on a field to require multiple compatibility conditions.
+     * Defines a mod-presence condition for an automatically discovered {@link MixinToggle} field.
+     * A failed condition logs a diagnostic; it prevents registration only when {@link #disableMixin()}
+     * is {@code true}. Repeat this annotation to apply multiple conditions.
      *
      * @since 1.2.0
      */
@@ -104,33 +118,33 @@ public @interface MixinConfig {
     @Repeatable(CompatHandlingContainer.class)
     @interface CompatHandling {
         /**
-         * @return the mod id queried through case-insensitive mod discovery
+         * @return mod id queried through case-insensitive discovery
          * @since 1.2.0
          */
         String modid();
 
         /**
-         * Returns whether the mod is expected to be present.
+         * Returns the required presence state for the target mod.
          *
-         * @return {@code true} when the mod is required, {@code false} when it is incompatible
+         * @return {@code true} when the mod must be present, {@code false} when it must be absent
          * @since 1.2.0
          */
         boolean desired();
 
         /**
-         * @return whether a failed condition disables the Mixin toggle
+         * @return whether a failed condition prevents the Mixin resources from being registered
          * @since 1.2.0
          */
         boolean disableMixin() default true;
 
         /**
-         * @return whether a failed condition contributes a compatibility warning
+         * @return whether a failed condition contributes to the in-game compatibility warning count
          * @since 1.3.2
          */
         boolean warnIngame() default true;
 
         /**
-         * @return the diagnostic reason logged when the condition fails
+         * @return diagnostic reason included in the log when the condition fails
          * @since 1.2.0
          */
         String reason() default "";

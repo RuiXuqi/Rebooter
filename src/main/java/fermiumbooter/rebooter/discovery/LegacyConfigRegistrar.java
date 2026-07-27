@@ -6,6 +6,7 @@ import fermiumbooter.rebooter.Reference;
 import fermiumbooter.rebooter.util.ForgeConfigAccess;
 import fermiumbooter.rebooter.util.GameDirectory;
 
+import javax.annotation.Nullable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
@@ -15,7 +16,7 @@ public final class LegacyConfigRegistrar {
     private LegacyConfigRegistrar() {
     }
 
-    public static void registerForgeConfigClass(Class<?> configClass, Object configInstance) {
+    public static void registerForgeConfigClass(Class<?> configClass, @Nullable Object configInstance) {
         if (configClass == null) {
             Reference.LOGGER.error("Cannot register a null Forge config class");
             return;
@@ -35,7 +36,7 @@ public final class LegacyConfigRegistrar {
     @SuppressWarnings("deprecation")
     private static void scanFields(
             Class<?> configClass,
-            Object configInstance,
+            @Nullable Object configInstance,
             String configFileName,
             LegacyConfigReader.Metadata metadata) {
         for (Field field : configClass.getFields()) {

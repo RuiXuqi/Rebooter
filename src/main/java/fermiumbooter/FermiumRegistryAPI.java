@@ -4,6 +4,7 @@ import fermiumbooter.rebooter.MixinRegistry;
 import fermiumbooter.rebooter.discovery.JarDiscovery;
 import fermiumbooter.rebooter.discovery.LegacyConfigRegistrar;
 
+import javax.annotation.Nullable;
 import java.util.function.Supplier;
 
 /**
@@ -14,6 +15,10 @@ import java.util.function.Supplier;
  * are enabled when at least one supplier returns {@code true}; every supplier is evaluated unless the
  * name was removed with {@link #removeMixin(String)}.
  *
+ * <p>Register or remove a configuration before MixinBooter requests the corresponding phase, normally
+ * during {@code IFMLLoadingPlugin} initialization. Suppliers are evaluated when that phase is handed
+ * off, not when they are registered.
+ *
  * @since 1.0.0
  */
 @SuppressWarnings({"unused", "DeprecatedIsStillUsed"})
@@ -22,7 +27,8 @@ public abstract class FermiumRegistryAPI {
      * Registers each configuration for unconditional loading in the selected phase.
      *
      * @param late         {@code false} for early loading or {@code true} for late loading
-     * @param mixinConfigs Mixin configuration resource names
+     * @param mixinConfigs Mixin configuration resource names; a {@code null} array or null/blank entries
+     *                     are logged and ignored
      * @since 1.0.0
      */
     public static void enqueueMixin(boolean late, String... mixinConfigs) {
@@ -33,7 +39,7 @@ public abstract class FermiumRegistryAPI {
      * Registers one configuration for unconditional loading in the selected phase.
      *
      * @param late        {@code false} for early loading or {@code true} for late loading
-     * @param mixinConfig Mixin configuration resource name
+     * @param mixinConfig Mixin configuration resource name; null or blank names are logged and ignored
      * @since 1.0.0
      */
     public static void enqueueMixin(boolean late, String mixinConfig) {
@@ -44,7 +50,7 @@ public abstract class FermiumRegistryAPI {
      * Registers one configuration with a fixed enabled state.
      *
      * @param late        {@code false} for early loading or {@code true} for late loading
-     * @param mixinConfig Mixin configuration resource name
+     * @param mixinConfig Mixin configuration resource name; null or blank names are logged and ignored
      * @param enabled     whether the configuration is eligible for loading
      * @since 1.0.0
      */
@@ -57,8 +63,9 @@ public abstract class FermiumRegistryAPI {
      * phase.
      *
      * @param late        {@code false} for early loading or {@code true} for late loading
-     * @param mixinConfig Mixin configuration resource name
-     * @param enabled     deferred eligibility check
+     * @param mixinConfig Mixin configuration resource name; null or blank names are logged and ignored
+     * @param enabled     deferred eligibility check; a null supplier is logged and ignored, while a null
+     *                    result is logged and treated as {@code false}
      * @since 1.0.0
      */
     public static void enqueueMixin(boolean late, String mixinConfig, Supplier<Boolean> enabled) {
@@ -68,7 +75,7 @@ public abstract class FermiumRegistryAPI {
     /**
      * Rejects a configuration name in both phases without evaluating any of its suppliers.
      *
-     * @param mixinConfig Mixin configuration resource name
+     * @param mixinConfig Mixin configuration resource name; null or blank names are logged and ignored
      * @since 1.0.0
      */
     public static void removeMixin(String mixinConfig) {
@@ -76,10 +83,12 @@ public abstract class FermiumRegistryAPI {
     }
 
     /**
-     * Returns whether mod discovery knows the supplied mod id. Available in both early and late stage.
+     * Returns whether the supplied mod id is known to Rebooter's discovery index. Null or blank ids return
+     * {@code false}. The first valid query may synchronously initialize jar discovery.
      *
      * @param modId mod id to query, case-insensitive
-     * @return {@code true} when the mod is available
+     * @return {@code true} when the id is built in, discovered from a mod, or identified through a configured
+     * package mapping
      * @since 1.2.0
      */
     public static boolean isModPresent(String modId) {
@@ -88,17 +97,34 @@ public abstract class FermiumRegistryAPI {
 
     /**
      * Registers an already loaded Forge configuration class that uses the legacy 1.2 annotation model.
-     * Annotation metadata is read from class bytecode so previously compiled configurations retain their
-     * historical defaults.
+     * The class must carry {@link net.minecraftforge.common.config.Config @Config}. Public boolean fields
+     * annotated with {@link fermiumbooter.annotations.MixinConfig.EarlyMixin @EarlyMixin} or
+     * {@link fermiumbooter.annotations.MixinConfig.LateMixin @LateMixin} are registered as Mixin toggles,
+     * and {@link fermiumbooter.annotations.MixinConfig.SubInstance @SubInstance} fields are inspected
+     * recursively.
      *
-     * @param configClass    Forge configuration class {@link net.minecraftforge.common.config.Config}
-     * @param configInstance instance used for non-static configuration fields
+     * <p>The method reads the cfg file selected by {@code @Config.name}, falling back to
+     * {@code @Config.modid}. A field's current value is used when its cfg property is absent. Legacy
+     * annotation names and compatibility rules are read from class bytecode so already compiled legacy
+     * configuration classes remain recognizable.
+     *
+     * <p>Compatibility rules are evaluated and enabled Mixin configurations are enqueued immediately.
+     * Call this method before the corresponding Mixin phase is handed off, normally during
+     * {@code IFMLLoadingPlugin} initialization.
+     *
+     * @param <T>            configuration class type
+     * @param configClass    Forge configuration class; null or classes without {@code @Config} are logged
+     *                       and ignored
+     * @param configInstance instance used for non-static fields and nested configuration objects; may be
+     *                       {@code null} only when every inspected field is static
      * @since 1.2.0
-     * @deprecated 1.3.0. Replaced by automatic scanning, which uses
-     * {@link fermiumbooter.annotations.MixinConfig} model instead.
+     * @deprecated since 1.3.0; annotate the class with
+     * {@link fermiumbooter.annotations.MixinConfig @MixinConfig} and its boolean toggle fields with
+     * {@link fermiumbooter.annotations.MixinConfig.MixinToggle @MixinToggle} for automatic discovery.
+     * No explicit registration call is required.
      */
     @Deprecated
-    public static void registerAnnotatedMixinConfig(Class<?> configClass, Object configInstance) {
+    public static <T> void registerAnnotatedMixinConfig(Class<T> configClass, @Nullable T configInstance) {
         LegacyConfigRegistrar.registerForgeConfigClass(configClass, configInstance);
     }
 }
