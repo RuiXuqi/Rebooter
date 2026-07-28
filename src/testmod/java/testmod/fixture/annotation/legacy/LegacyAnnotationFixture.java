@@ -12,8 +12,8 @@ public final class LegacyAnnotationFixture {
     private static final LegacyAnnotationFixture INSTANCE = new LegacyAnnotationFixture();
 
     @Config.Name("Lifecycle")
-    @MixinConfig.EarlyMixin(name = "testmod/mixins/annotation/legacy/lifecycle-early.json")
-    @MixinConfig.LateMixin(name = "testmod/mixins/annotation/legacy/lifecycle-late.json")
+    @MixinConfig.EarlyMixin(name = "testmod/mixins/annotation/legacy/mixins.lifecycle-early.json")
+    @MixinConfig.LateMixin(name = "testmod/mixins/annotation/legacy/mixins.lifecycle-late.json")
     @MixinConfig.CompatHandling(modid = "minecraft", desired = true)
     public boolean lifecycle;
 
@@ -21,7 +21,7 @@ public final class LegacyAnnotationFixture {
     public final Nested nested = new Nested();
 
     @Config.Name("CompatibilityWarningOnly")
-    @MixinConfig.LateMixin(name = "testmod/mixins/annotation/legacy/compat-warning-late.json")
+    @MixinConfig.LateMixin(name = "testmod/mixins/annotation/legacy/mixins.compat-warning-late.json")
     @MixinConfig.CompatHandling(
             modid = "minecraft",
             desired = false,
@@ -35,7 +35,7 @@ public final class LegacyAnnotationFixture {
     public boolean compatibilityWarningOnly;
 
     @Config.Name("CompatibilityDisabled")
-    @MixinConfig.EarlyMixin(name = "testmod/mixins/annotation/legacy/compat-disabled-early.json")
+    @MixinConfig.EarlyMixin(name = "testmod/mixins/annotation/legacy/mixins.compat-disabled-early.json")
     @MixinConfig.CompatHandling(
             modid = "minecraft",
             desired = false,
@@ -53,7 +53,7 @@ public final class LegacyAnnotationFixture {
     public static final class Nested {
 
         @Config.Name("Nested")
-        @MixinConfig.LateMixin(name = "testmod/mixins/annotation/legacy/nested-late.json")
+        @MixinConfig.LateMixin(name = "testmod/mixins/annotation/legacy/mixins.nested-late.json")
         public boolean enabled;
     }
 }

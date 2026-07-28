@@ -14,10 +14,10 @@ public final class RegistryFixture {
 
     public static void register() {
         FermiumRegistryAPI.enqueueMixin(
-                false, "testmod/mixins/registry/early.json", true);
+                false, "testmod/mixins/registry/mixins.early.json", true);
         FermiumRegistryAPI.enqueueMixin(
                 true,
-                "testmod/mixins/registry/late.json",
+                "testmod/mixins/registry/mixins.late.json",
                 () -> {
                     SUPPLIER_EVALUATIONS.incrementAndGet();
                     return Loader.isModLoaded("forge");

@@ -8,20 +8,20 @@ public final class CurrentAnnotationFixture {
 
     @Config.Name("Lifecycle")
     @MixinConfig.MixinToggle(
-            earlyMixin = "testmod/mixins/annotation/current/lifecycle-early.json",
-            lateMixin = "testmod/mixins/annotation/current/lifecycle-late.json",
+            earlyMixin = "testmod/mixins/annotation/current/mixins.lifecycle-early.json",
+            lateMixin = "testmod/mixins/annotation/current/mixins.lifecycle-late.json",
             defaultValue = false)
     public static boolean lifecycle;
 
     @Config.Name("DefaultEnabled")
     @MixinConfig.MixinToggle(
-            lateMixin = "testmod/mixins/annotation/current/default-late.json",
+            lateMixin = "testmod/mixins/annotation/current/mixins.default-late.json",
             defaultValue = true)
     public static boolean defaultEnabled;
 
     @Config.Name("CompatibilityWarningOnly")
     @MixinConfig.MixinToggle(
-            lateMixin = "testmod/mixins/annotation/current/compat-warning-late.json",
+            lateMixin = "testmod/mixins/annotation/current/mixins.compat-warning-late.json",
             defaultValue = true)
     @MixinConfig.CompatHandling(
             modid = "minecraft",
@@ -37,7 +37,7 @@ public final class CurrentAnnotationFixture {
 
     @Config.Name("CompatibilityDisabled")
     @MixinConfig.MixinToggle(
-            lateMixin = "testmod/mixins/annotation/current/compat-disabled-late.json",
+            lateMixin = "testmod/mixins/annotation/current/mixins.compat-disabled-late.json",
             defaultValue = true)
     @MixinConfig.CompatHandling(
             modid = "minecraft",
@@ -48,7 +48,7 @@ public final class CurrentAnnotationFixture {
 
     @Config.Name("MixinSquared")
     @MixinConfig.MixinToggle(
-            lateMixin = "testmod/mixins/feature/mixinsquared.json",
+            lateMixin = "testmod/mixins/feature/mixins.mixinsquared.json",
             defaultValue = false)
     public static boolean mixinSquared;
 
