@@ -25,22 +25,41 @@ jobs:
             --pattern '*.jar' \
             --dir release-assets
 
+          # Detect the jar with the shortest base name
+          cd release-assets
+          jars=( *.jar )
+          if [ ! -e "${jars[0]}" ]; then
+            echo "::error::No .jar assets found in the release" >&2
+            exit 1
+          fi
+          primary_base=""
+          for f in "${jars[@]}"; do
+            base="${f%.jar}"
+            if [ -z "$primary_base" ] || [ "${#base}" -lt "${#primary_base}" ]; then
+              primary_base="$base"
+            fi
+          done
+          primary="${primary_base}.jar"
+          echo "Primary file: ${primary}"
+          echo "primary=${primary}" >> "$GITHUB_OUTPUT"
+
       - uses: Kir-Antipov/mc-publish@v3
         with:
           # Only include this section if you wish to publish
           # your assets on Modrinth.
-          #modrinth-id: placeholder
-          #modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          modrinth-id: placeholder
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
 
           # Only include this section if you wish to publish
           # your assets on CurseForge.
-          curseforge-id: 1625784
+          curseforge-id: placeholder
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
 
           files: |
+            release-assets/${{ steps.release.outputs.primary }}
             release-assets/*.jar
           loaders: forge
-          environment: client? | server?
+          environment: client | server
           game-versions: 1.12.2
           java: |
             8

@@ -7,9 +7,8 @@ spotless {
     enforceCheck false
 
     java {
-        def packagePath = "${propertyString('mod_package')}".replace('.', '/')
         target fileTree('src') {
-            include "*/java/${packagePath}/**/*.java"
+            include "*/java/**/*.java"
         }
 
         leadingTabsToSpaces()
@@ -18,15 +17,16 @@ spotless {
     }
 }
 
+// Configure it here to avoid MixinConfig MF, which is used in MB 11 but should not exist in 10
+mixin {
+    config 'mixins.fermiumbooter.init.json'
+}
+
+mcpForge.addModdingDependenciesTo(sourceSets.test)
+
 tasks.withType(Test).configureEach {
     maxParallelForks = 1
 }
-
-//['runClient', 'runServer', 'runObfClient', 'runObfServer'].each { taskName ->
-//    tasks.named(taskName).configure {
-//        extraJvmArgs.add('-Drebooter.discoveryCache=false')
-//    }
-//}
 
 sourceSets {
     testmod {
@@ -35,10 +35,13 @@ sourceSets {
     }
 }
 
-tasks.register('testmodJar', Jar) {
+def testmodJar = tasks.register('testmodJar', Jar) {
     group = 'verification'
-    dependsOn tasks.named('testmodClasses')
-    archiveBaseName.set('rebooter-testmod')
+    description = 'Builds the Rebooter test mod coremod jar for development runs.'
+    archiveBaseName = 'rebooter-testmod'
+    archiveVersion = ''
+    // Kept out of build/libs, which is what the release workflow uploads
+    destinationDirectory = layout.buildDirectory.dir('testlibs')
     from sourceSets.testmod.output
     manifest {
         attributes(
@@ -49,43 +52,34 @@ tasks.register('testmodJar', Jar) {
     }
 }
 
-def testmodRunDirectories = [runClient: file('run'), runServer: file('run')]
-if (providers.gradleProperty('withTestmod').isPresent()) {
-    testmodRunDirectories.runObfClient = file('run/obfuscated')
-}
-
-testmodRunDirectories.each { taskName, runDirectory ->
+['runClient', 'runServer'].each { taskName ->
     tasks.named(taskName).configure {
-        dependsOn tasks.named('testmodJar')
+        dependsOn testmodJar
         doFirst {
-            delete fileTree(new File(runDirectory, 'mods')) {
-                include 'rebooter-testmod-*.jar'
-            }
             copy {
-                from tasks.named('testmodJar')
-                into new File(runDirectory, 'mods')
+                from testmodJar
+                into file('run/mods')
             }
             copy {
                 from file('src/testmod/config/rebooter')
                 from file('src/testmod/config/fixtures')
-                into new File(runDirectory, 'config')
+                into file('run/config')
             }
         }
     }
+}
+
+// Compile the test mod during `check` so CI catches breakage without having to launch the game
+tasks.named('check').configure {
+    dependsOn tasks.named('testmodClasses')
 }
 
 base {
     archivesName = 'rebooter'
 }
 
-tasks.named('jar') {
-    archiveClassifier.set('dev')
-}
+def shadow = propertyBool('enable_shadow')
 
-tasks.named('shadowJar') {
-    archiveClassifier.set('')
-}
-
-tasks.named('reobfJar') {
-    archiveBaseName.set('`rebooter')
+tasks.named(shadow ? 'reobfShadowJar' : 'reobfJar').configure {
+    archiveBaseName = '`rebooter'
 }
