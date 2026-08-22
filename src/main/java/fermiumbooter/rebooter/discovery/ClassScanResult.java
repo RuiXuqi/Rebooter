@@ -8,11 +8,11 @@ final class ClassScanResult {
     @Nullable
     private final DiscoveredConfig configResult;
     @Nullable
-    private final String modId;
+    private final ModIdentity modIdentity;
 
-    ClassScanResult(@Nullable DiscoveredConfig configResult, @Nullable String modId) {
+    ClassScanResult(@Nullable DiscoveredConfig configResult, @Nullable ModIdentity modIdentity) {
         this.configResult = configResult;
-        this.modId = modId;
+        this.modIdentity = modIdentity;
     }
 
     static ClassScanResult empty() {
@@ -20,7 +20,7 @@ final class ClassScanResult {
     }
 
     boolean hasMetadata() {
-        return this.configResult != null || this.modId != null;
+        return this.configResult != null || this.modIdentity != null;
     }
 
     @Nullable
@@ -29,7 +29,7 @@ final class ClassScanResult {
     }
 
     @Nullable
-    String modId() {
-        return this.modId;
+    ModIdentity modIdentity() {
+        return this.modIdentity;
     }
 }

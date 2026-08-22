@@ -6,8 +6,10 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Opcodes;
 
+import javax.annotation.Nullable;
+
 final class AsmClassMetadataReader {
-    private static final int READER_VERSION = 1;
+    private static final int READER_VERSION = 2;
 
     private AsmClassMetadataReader() {
     }
@@ -30,7 +32,7 @@ final class AsmClassMetadataReader {
                 ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         return new ClassScanResult(
                 configReader == null ? null : configReader.result(),
-                metadataVisitor.modId);
+                metadataVisitor.identity());
     }
 
     private static boolean has(int annotationKinds, int expected) {
@@ -40,6 +42,8 @@ final class AsmClassMetadataReader {
     private static final class ModMetadataVisitor extends ClassVisitor {
         private final boolean inspectForgeMod;
         private String modId;
+        private String modName;
+        private String modVersion;
 
         private ModMetadataVisitor(ClassVisitor delegate, int annotationKinds) {
             super(Opcodes.ASM5, delegate);
@@ -54,6 +58,11 @@ final class AsmClassMetadataReader {
             }
             return super.visitAnnotation(descriptor, visible);
         }
+
+        @Nullable
+        private ModIdentity identity() {
+            return this.modId == null ? null : ModIdentity.of(this.modId, this.modName, this.modVersion);
+        }
     }
 
     private static final class ForgeModAnnotationVisitor extends AnnotationVisitor {
@@ -66,10 +75,15 @@ final class AsmClassMetadataReader {
 
         @Override
         public void visit(String name, Object value) {
-            if ("modid".equals(name)
-                    && value instanceof String
-                    && StringUtils.isNotBlank((String) value)) {
+            if (!(value instanceof String) || StringUtils.isBlank((String) value)) {
+                return;
+            }
+            if ("modid".equals(name)) {
                 this.destination.modId = (String) value;
+            } else if ("name".equals(name)) {
+                this.destination.modName = (String) value;
+            } else if ("version".equals(name)) {
+                this.destination.modVersion = (String) value;
             }
         }
     }

@@ -102,11 +102,15 @@ class CurrentConfigReaderTest {
         java.util.List<CompatRule> rules = result.toggles().get(0).compatibilityRules();
         assertEquals(2, rules.size());
         assertEquals("forge", rules.get(0).modid());
+        assertEquals("Forge Fork", rules.get(0).modName());
+        assertEquals("[14.23,)", rules.get(0).modVersionRange());
         assertFalse(rules.get(0).desired());
         assertFalse(rules.get(0).disableMixin());
         assertFalse(rules.get(0).warnIngame());
         assertEquals("compatibility container", rules.get(0).reason());
         assertEquals("minecraft", rules.get(1).modid());
+        assertNull(rules.get(1).modName());
+        assertNull(rules.get(1).modVersionRange());
         assertTrue(rules.get(1).desired());
         assertEquals("", rules.get(1).reason());
     }
@@ -140,6 +144,8 @@ class CurrentConfigReaderTest {
         AnnotationVisitor rules = container.visitArray("value");
         AnnotationVisitor incompatible = rules.visitAnnotation(null, COMPAT_HANDLING);
         incompatible.visit("modid", "forge");
+        incompatible.visit("modName", "Forge Fork");
+        incompatible.visit("targetVersionRange", "[14.23,)");
         incompatible.visit("desired", false);
         incompatible.visit("disableMixin", false);
         incompatible.visit("warnIngame", false);
@@ -147,6 +153,8 @@ class CurrentConfigReaderTest {
         incompatible.visitEnd();
         AnnotationVisitor compatible = rules.visitAnnotation(null, COMPAT_HANDLING);
         compatible.visit("modid", "minecraft");
+        compatible.visit("modName", "");
+        compatible.visit("targetVersionRange", "  ");
         compatible.visit("desired", true);
         compatible.visitEnd();
         rules.visitEnd();

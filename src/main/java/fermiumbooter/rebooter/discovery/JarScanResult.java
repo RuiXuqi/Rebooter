@@ -1,51 +1,61 @@
 package fermiumbooter.rebooter.discovery;
 
+import javax.annotation.Nullable;
 import java.util.*;
 
 final class JarScanResult {
     private static final JarScanResult IGNORED = new JarScanResult(
             Status.IGNORED,
             Collections.emptySet(),
+            null,
+            Collections.emptyList(),
             Collections.emptySet(),
             Collections.emptyList());
 
     private final Status status;
     private final Set<String> mappedModIds;
-    private final Set<String> discoveredModIds;
+    @Nullable
+    private final ModIdentity metadataIdentity;
+    private final List<ModIdentity> annotationIdentities;
+    private final Set<String> launcherModIds;
     private final List<DiscoveredConfig> configResults;
 
     private JarScanResult(
             Status status,
             Iterable<String> mappedModIds,
-            Iterable<String> discoveredModIds,
+            @Nullable ModIdentity metadataIdentity,
+            Collection<ModIdentity> annotationIdentities,
+            Iterable<String> launcherModIds,
             List<DiscoveredConfig> configResults) {
         this.status = status;
         this.mappedModIds = immutableSet(mappedModIds);
-        this.discoveredModIds = immutableSet(discoveredModIds);
+        this.metadataIdentity = metadataIdentity;
+        this.annotationIdentities = Collections.unmodifiableList(new ArrayList<>(annotationIdentities));
+        this.launcherModIds = immutableSet(launcherModIds);
         this.configResults = Collections.unmodifiableList(new ArrayList<>(configResults));
     }
 
     static JarScanResult scanned(
             Iterable<String> mappedModIds,
-            String metadataModId,
-            Iterable<String> annotationModIds,
+            @Nullable ModIdentity metadataIdentity,
+            Collection<ModIdentity> annotationIdentities,
             Iterable<String> launcherModIds,
             List<DiscoveredConfig> configResults) {
-        return completed(
+        return new JarScanResult(
                 Status.SCANNED,
                 mappedModIds,
-                metadataModId,
-                annotationModIds,
+                metadataIdentity,
+                annotationIdentities,
                 launcherModIds,
                 configResults);
     }
 
     static JarScanResult cached(JarDiscoveryCache.CachedData cached) {
-        return completed(
+        return new JarScanResult(
                 Status.CACHED,
                 cached.mappedModIds(),
-                cached.metadataModId(),
-                cached.annotationModIds(),
+                cached.metadataIdentity(),
+                cached.annotationIdentities(),
                 cached.launcherModIds(),
                 cached.configResults());
     }
@@ -62,32 +72,21 @@ final class JarScanResult {
         return this.mappedModIds;
     }
 
-    Set<String> discoveredModIds() {
-        return this.discoveredModIds;
+    @Nullable
+    ModIdentity metadataIdentity() {
+        return this.metadataIdentity;
+    }
+
+    List<ModIdentity> annotationIdentities() {
+        return this.annotationIdentities;
+    }
+
+    Set<String> launcherModIds() {
+        return this.launcherModIds;
     }
 
     List<DiscoveredConfig> configResults() {
         return this.configResults;
-    }
-
-    private static JarScanResult completed(
-            Status status,
-            Iterable<String> mappedModIds,
-            String metadataModId,
-            Iterable<String> annotationModIds,
-            Iterable<String> launcherModIds,
-            List<DiscoveredConfig> configResults) {
-        Set<String> discoveredModIds = new HashSet<>();
-        if (metadataModId != null) {
-            discoveredModIds.add(metadataModId);
-        }
-        for (String modId : annotationModIds) {
-            discoveredModIds.add(modId);
-        }
-        for (String modId : launcherModIds) {
-            discoveredModIds.add(modId);
-        }
-        return new JarScanResult(status, mappedModIds, discoveredModIds, configResults);
     }
 
     private static Set<String> immutableSet(Iterable<String> values) {

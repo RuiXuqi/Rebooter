@@ -52,6 +52,10 @@ public final class RebooterConfig {
                     FermiumBooterConfig.forcedEarlyMixinConfigRemovals,
                     FermiumBooterConfig.modDiscoveryPackageMappings,
                     FermiumBooterConfig.discoveryClassScanAllowlist);
+            if (instance.overrideCompatibilityChecks) {
+                Reference.LOGGER.warn(
+                        "Mixin config compatibility checks are overridden; CompatHandling conditions are skipped");
+            }
         }
         return instance;
     }

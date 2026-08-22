@@ -8,26 +8,71 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class JsonInfoReaderTest {
 
     @Test
-    void stopsReadingAfterTheFirstValidArrayModId() {
-        byte[] prefix = "[{\"modid\":\"first\"}".getBytes(StandardCharsets.UTF_8);
+    void stopsReadingAfterTheFirstValidArrayEntry() {
+        byte[] prefix = "[{\"modid\":\"first\",\"name\":\"First\",\"version\":\"1.0\"}"
+                .getBytes(StandardCharsets.UTF_8);
 
-        String modId = JsonInfoReader.firstModId(new ThrowAfterPrefixInputStream(prefix));
+        ModIdentity identity = JsonInfoReader.firstMod(new ThrowAfterPrefixInputStream(prefix));
 
-        assertEquals("first", modId);
+        assertEquals(ModIdentity.of("first", "First", "1.0"), identity);
+    }
+
+    @Test
+    void arraySkipsEntriesWithoutAUsableModId() {
+        InputStream input = input("["
+                + "{\"modid\":12},"
+                + "{\"modid\":\"  \"},"
+                + "{\"name\":\"No Id\"},"
+                + "{\"modid\":\"chosen\",\"version\":\"2.1\"},"
+                + "{\"modid\":\"ignored\"}"
+                + "]");
+
+        assertEquals(ModIdentity.of("chosen", null, "2.1"), JsonInfoReader.firstMod(input));
+    }
+
+    @Test
+    void blankAndNonStringFieldsLeaveTheIdentityUnknown() {
+        InputStream input = input("[{\"modid\":\"only_id\",\"name\":\"  \",\"version\":7}]");
+
+        assertEquals(ModIdentity.of("only_id", null, null), JsonInfoReader.firstMod(input));
     }
 
     @Test
     void rootObjectPrefersDirectModIdOverAnEarlierModList() {
-        InputStream input = new ByteArrayInputStream(("{"
-                + "\"modList\":[{\"modid\":\"nested\"}],"
-                + "\"modid\":\"direct\""
-                + "}").getBytes(StandardCharsets.UTF_8));
+        InputStream input = input("{"
+                + "\"modList\":[{\"modid\":\"nested\",\"name\":\"Nested\"}],"
+                + "\"modid\":\"direct\","
+                + "\"name\":\"Direct\","
+                + "\"version\":\"3.0\""
+                + "}");
 
-        assertEquals("direct", JsonInfoReader.firstModId(input));
+        assertEquals(ModIdentity.of("direct", "Direct", "3.0"), JsonInfoReader.firstMod(input));
+    }
+
+    @Test
+    void rootObjectFallsBackToTheFirstModListEntry() {
+        InputStream input = input("{"
+                + "\"modListVersion\":2,"
+                + "\"modList\":["
+                + "{\"modid\":\"nested\",\"name\":\"Nested\",\"version\":\"4.2\"},"
+                + "{\"modid\":\"ignored\"}"
+                + "]}");
+
+        assertEquals(ModIdentity.of("nested", "Nested", "4.2"), JsonInfoReader.firstMod(input));
+    }
+
+    @Test
+    void malformedDocumentHasNoIdentity() {
+        assertNull(JsonInfoReader.firstMod(input("[{not valid json]")));
+    }
+
+    private static InputStream input(String json) {
+        return new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
     }
 
     private static final class ThrowAfterPrefixInputStream extends InputStream {

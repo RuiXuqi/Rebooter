@@ -36,7 +36,8 @@ class FermiumBooterMalformedConfigTest {
         assertArrayEquals(
                 new String[]{
                         "git.jbredwards.jsonpaintings=jsonpaintings",
-                        "net.jan.moddirector=moddirector"
+                        "net.jan.moddirector=moddirector",
+                        "gg.essential=essential"
                 },
                 FermiumBooterConfig.modDiscoveryPackageMappings);
         assertTrue(Files.readAllLines(configFile, StandardCharsets.UTF_8)

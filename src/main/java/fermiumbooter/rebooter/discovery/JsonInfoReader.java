@@ -14,13 +14,19 @@ final class JsonInfoReader {
     private JsonInfoReader() {
     }
 
+    /**
+     * Reads the identity of the first mod entry declared in an {@code mcmod.info} document.
+     * A root object is described by its own {@code modid} when it has one and by the first entry of
+     * its {@code modList} otherwise; a root array is described by its first entry carrying a
+     * {@code modid}, whose siblings are never read.
+     */
     @Nullable
-    static String firstModId(InputStream input) {
+    static ModIdentity firstMod(InputStream input) {
         try {
             JsonReader reader = new JsonReader(new InputStreamReader(input, StandardCharsets.UTF_8));
             JsonToken root = reader.peek();
-            if (root == JsonToken.BEGIN_ARRAY) return firstModId(reader, SearchMode.STOP_AFTER_MATCH);
-            if (root == JsonToken.BEGIN_OBJECT) return firstModId(reader);
+            if (root == JsonToken.BEGIN_ARRAY) return firstArrayEntry(reader, false);
+            if (root == JsonToken.BEGIN_OBJECT) return rootObjectEntry(reader);
         } catch (IOException | RuntimeException ignored) {
             return null;
         }
@@ -28,74 +34,95 @@ final class JsonInfoReader {
     }
 
     @Nullable
-    private static String firstModId(JsonReader reader) throws IOException {
-        String nestedModId = null;
+    private static ModIdentity rootObjectEntry(JsonReader reader) throws IOException {
+        EntryBuilder direct = new EntryBuilder();
+        ModIdentity nested = null;
         reader.beginObject();
         while (reader.hasNext()) {
             String name = reader.nextName();
-            if ("modid".equals(name)) {
-                String directModId = readModId(reader);
-                if (directModId != null) return directModId;
+            if (direct.accepts(name)) {
+                direct.read(name, reader);
             } else if ("modList".equals(name) && reader.peek() == JsonToken.BEGIN_ARRAY) {
-                String candidate = firstModId(reader, SearchMode.CONSUME_CONTAINER);
-                if (nestedModId == null) nestedModId = candidate;
+                ModIdentity candidate = firstArrayEntry(reader, true);
+                if (nested == null) nested = candidate;
             } else {
                 reader.skipValue();
             }
         }
         reader.endObject();
-        return nestedModId;
+        ModIdentity directIdentity = direct.build();
+        return directIdentity == null ? nested : directIdentity;
     }
 
+    /**
+     * @param consumeContainer whether the array must be read to its end even after a match, which is
+     *                         required when the caller keeps reading the enclosing object
+     */
     @Nullable
-    private static String firstModId(JsonReader reader, SearchMode searchMode) throws IOException {
-        String firstModId = null;
+    private static ModIdentity firstArrayEntry(JsonReader reader, boolean consumeContainer) throws IOException {
+        ModIdentity firstEntry = null;
         reader.beginArray();
         while (reader.hasNext()) {
-            String candidate;
-            if (reader.peek() == JsonToken.BEGIN_OBJECT) {
-                candidate = modId(reader, searchMode);
-            } else {
+            if (firstEntry != null || reader.peek() != JsonToken.BEGIN_OBJECT) {
                 reader.skipValue();
-                candidate = null;
+                continue;
             }
-            if (firstModId == null) firstModId = candidate;
-            if (searchMode == SearchMode.STOP_AFTER_MATCH && candidate != null) return candidate;
+            firstEntry = objectEntry(reader);
+            if (firstEntry != null && !consumeContainer) return firstEntry;
         }
         reader.endArray();
-        return firstModId;
+        return firstEntry;
     }
 
     @Nullable
-    private static String modId(JsonReader reader, SearchMode searchMode) throws IOException {
-        String firstModId = null;
+    private static ModIdentity objectEntry(JsonReader reader) throws IOException {
+        EntryBuilder entry = new EntryBuilder();
         reader.beginObject();
         while (reader.hasNext()) {
             String name = reader.nextName();
-            if ("modid".equals(name)) {
-                String candidate = readModId(reader);
-                if (firstModId == null) firstModId = candidate;
-                if (searchMode == SearchMode.STOP_AFTER_MATCH && candidate != null) return candidate;
+            if (entry.accepts(name)) {
+                entry.read(name, reader);
             } else {
                 reader.skipValue();
             }
         }
         reader.endObject();
-        return firstModId;
+        return entry.build();
     }
 
     @Nullable
-    private static String readModId(JsonReader reader) throws IOException {
+    private static String readText(JsonReader reader) throws IOException {
         if (reader.peek() != JsonToken.STRING) {
             reader.skipValue();
             return null;
         }
-        String modId = reader.nextString().trim();
-        return modId.isEmpty() ? null : modId;
+        String text = reader.nextString().trim();
+        return text.isEmpty() ? null : text;
     }
 
-    private enum SearchMode {
-        STOP_AFTER_MATCH,
-        CONSUME_CONTAINER
+    private static final class EntryBuilder {
+        private String modId;
+        private String name;
+        private String version;
+
+        private boolean accepts(String field) {
+            return "modid".equals(field) || "name".equals(field) || "version".equals(field);
+        }
+
+        private void read(String field, JsonReader reader) throws IOException {
+            String value = readText(reader);
+            if ("modid".equals(field)) {
+                if (this.modId == null) this.modId = value;
+            } else if ("name".equals(field)) {
+                if (this.name == null) this.name = value;
+            } else if (this.version == null) {
+                this.version = value;
+            }
+        }
+
+        @Nullable
+        private ModIdentity build() {
+            return this.modId == null ? null : ModIdentity.of(this.modId, this.name, this.version);
+        }
     }
 }

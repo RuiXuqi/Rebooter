@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import fermiumbooter.rebooter.Reference;
 
+import javax.annotation.Nullable;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -23,7 +24,7 @@ final class JarDiscoveryCache {
     private static final int FINGERPRINT_BUFFER_SIZE = 64 * 1024;
     // RBTDISC Rebooter Discovery
     // Bump when format updated
-    private static final long MAGIC = 0x5242544449534303L;
+    private static final long MAGIC = 0x5242544449534304L;
     private static final int DIGEST_LENGTH = 32;
     private static final int MAX_FILE_SIZE = 16 * 1024 * 1024;
     private static final int MAX_PAYLOAD_SIZE = MAX_FILE_SIZE - 4096;
@@ -126,8 +127,8 @@ final class JarDiscoveryCache {
             FileStamp stamp,
             byte[] fingerprint,
             List<DiscoveredConfig> configResults,
-            String metadataModId,
-            Set<String> annotationModIds,
+            @Nullable ModIdentity metadataIdentity,
+            Collection<ModIdentity> annotationIdentities,
             Set<String> mappedModIds,
             Set<String> launcherModIds) {
         if (!this.enabled) return;
@@ -136,8 +137,8 @@ final class JarDiscoveryCache {
                 stamp,
                 fingerprint.clone(),
                 immutable(configResults),
-                metadataModId,
-                immutableSorted(annotationModIds),
+                metadataIdentity,
+                immutableSortedIdentities(annotationIdentities),
                 immutableSorted(mappedModIds),
                 immutableSorted(launcherModIds)));
         this.dirty = true;
@@ -183,7 +184,7 @@ final class JarDiscoveryCache {
         int totalModIds = 0;
         for (Entry entry : entries.values()) {
             validateConfigResults(entry.configResults, nestedCounts);
-            totalModIds = checkModIds(entry.annotationModIds, totalModIds, "annotation mod ID");
+            totalModIds = checkIdentities(entry.annotationIdentities, totalModIds);
             totalModIds = checkModIds(entry.mappedModIds, totalModIds, "mapped mod ID");
             totalModIds = checkModIds(entry.launcherModIds, totalModIds, "launcher mod ID");
         }
@@ -198,9 +199,9 @@ final class JarDiscoveryCache {
                 payload.writeLong(entry.stamp.creationTimeNanos);
                 writeString(payload, entry.stamp.fileKey);
                 payload.write(entry.fingerprint);
-                writeString(payload, entry.metadataModId == null ? "" : entry.metadataModId);
+                writeIdentity(payload, entry.metadataIdentity);
                 writeConfigResults(payload, entry.configResults);
-                writeStrings(payload, entry.annotationModIds);
+                writeIdentities(payload, entry.annotationIdentities);
                 writeStrings(payload, entry.mappedModIds);
                 writeStrings(payload, entry.launcherModIds);
             }
@@ -264,11 +265,10 @@ final class JarDiscoveryCache {
                         readString(input));
                 byte[] fingerprint = new byte[DIGEST_LENGTH];
                 input.readFully(fingerprint);
-                String metadataModId = readString(input);
-                if (metadataModId.isEmpty()) metadataModId = null;
+                ModIdentity metadataIdentity = readIdentity(input);
                 List<DiscoveredConfig> configResults = readConfigResults(input, nestedCounts);
-                List<String> annotationModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "annotation mod ID count");
-                totalModIds = checkedTotal(totalModIds, annotationModIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
+                List<ModIdentity> annotationIdentities = readIdentities(input);
+                totalModIds = checkedTotal(totalModIds, annotationIdentities.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
                 List<String> mappedModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "mapped mod ID count");
                 totalModIds = checkedTotal(totalModIds, mappedModIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
                 List<String> launcherModIds = readStrings(input, MAX_MOD_IDS_PER_JAR, "launcher mod ID count");
@@ -277,8 +277,8 @@ final class JarDiscoveryCache {
                         stamp,
                         fingerprint,
                         immutable(configResults),
-                        metadataModId,
-                        immutable(annotationModIds),
+                        metadataIdentity,
+                        immutable(annotationIdentities),
                         immutable(mappedModIds),
                         immutable(launcherModIds))) != null) {
                     throw new IOException("duplicate JAR path in cache");
@@ -302,6 +302,12 @@ final class JarDiscoveryCache {
     private static List<String> immutableSorted(Collection<String> values) {
         List<String> sorted = new ArrayList<>(values);
         Collections.sort(sorted);
+        return immutable(sorted);
+    }
+
+    private static List<ModIdentity> immutableSortedIdentities(Collection<ModIdentity> identities) {
+        List<ModIdentity> sorted = new ArrayList<>(identities);
+        sorted.sort(Comparator.comparing(ModIdentity::modId));
         return immutable(sorted);
     }
 
@@ -337,6 +343,8 @@ final class JarDiscoveryCache {
                         "total compat rule count");
                 for (CompatRule rule : rules) {
                     checkString(rule.modid());
+                    checkNullableString(rule.modName());
+                    checkNullableString(rule.modVersionRange());
                     checkString(rule.reason());
                 }
             }
@@ -358,6 +366,8 @@ final class JarDiscoveryCache {
                 output.writeInt(toggle.compatibilityRules().size());
                 for (CompatRule rule : toggle.compatibilityRules()) {
                     writeString(output, rule.modid());
+                    writeNullableString(output, rule.modName());
+                    writeNullableString(output, rule.modVersionRange());
                     output.writeBoolean(rule.desired());
                     output.writeBoolean(rule.disableMixin());
                     output.writeBoolean(rule.warnIngame());
@@ -404,6 +414,8 @@ final class JarDiscoveryCache {
                 for (int ruleIndex = 0; ruleIndex < ruleCount; ruleIndex++) {
                     rules.add(new CompatRule(
                             readString(input),
+                            readNullableString(input),
+                            readNullableString(input),
                             input.readBoolean(),
                             input.readBoolean(),
                             input.readBoolean(),
@@ -426,6 +438,46 @@ final class JarDiscoveryCache {
         return checkedTotal(total, modIds.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
     }
 
+    private static int checkIdentities(List<ModIdentity> identities, int total) throws IOException {
+        checkCount(identities.size(), MAX_MOD_IDS_PER_JAR, "annotation mod ID count");
+        for (ModIdentity identity : identities) {
+            checkNonEmptyString(identity.modId(), "annotation mod ID");
+            checkNullableString(identity.name());
+            checkNullableString(identity.version());
+        }
+        return checkedTotal(total, identities.size(), MAX_MOD_IDS_TOTAL, "total mod ID count");
+    }
+
+    private static void writeIdentities(DataOutputStream output, List<ModIdentity> identities) throws IOException {
+        output.writeInt(identities.size());
+        for (ModIdentity identity : identities) writeIdentity(output, identity);
+    }
+
+    private static List<ModIdentity> readIdentities(DataInputStream input) throws IOException {
+        int count = readCount(input, MAX_MOD_IDS_PER_JAR, "annotation mod ID count");
+        List<ModIdentity> identities = new ArrayList<>(count);
+        for (int index = 0; index < count; index++) {
+            ModIdentity identity = readIdentity(input);
+            if (identity == null) throw new IOException("annotation mod ID is empty");
+            identities.add(identity);
+        }
+        return identities;
+    }
+
+    private static void writeIdentity(DataOutputStream output, @Nullable ModIdentity identity) throws IOException {
+        writeString(output, identity == null ? "" : identity.modId());
+        writeNullableString(output, identity == null ? null : identity.name());
+        writeNullableString(output, identity == null ? null : identity.version());
+    }
+
+    @Nullable
+    private static ModIdentity readIdentity(DataInputStream input) throws IOException {
+        String modId = readString(input);
+        String name = readNullableString(input);
+        String version = readNullableString(input);
+        return modId.isEmpty() ? null : ModIdentity.of(modId, name, version);
+    }
+
     private static void writeStrings(DataOutputStream output, List<String> values) throws IOException {
         output.writeInt(values.size());
         for (String value : values) writeString(output, value);
@@ -445,9 +497,24 @@ final class JarDiscoveryCache {
         output.write(bytes);
     }
 
+    // An unknown name, version or constraint is stored as an empty string.
+    private static void writeNullableString(DataOutputStream output, @Nullable String value) throws IOException {
+        writeString(output, value == null ? "" : value);
+    }
+
+    @Nullable
+    private static String readNullableString(DataInputStream input) throws IOException {
+        String value = readString(input);
+        return value.isEmpty() ? null : value;
+    }
+
     private static void checkString(String value) throws IOException {
         if (value == null) throw new IOException("cache string is null");
         checkCount(value.getBytes(StandardCharsets.UTF_8).length, MAX_STRING_BYTES, "string length");
+    }
+
+    private static void checkNullableString(@Nullable String value) throws IOException {
+        if (value != null) checkString(value);
     }
 
     private static void checkNonEmptyString(String value, String description) throws IOException {
@@ -514,20 +581,21 @@ final class JarDiscoveryCache {
 
     static final class CachedData {
         private final List<DiscoveredConfig> configResults;
-        private final String metadataModId;
-        private final List<String> annotationModIds;
+        @Nullable
+        private final ModIdentity metadataIdentity;
+        private final List<ModIdentity> annotationIdentities;
         private final List<String> mappedModIds;
         private final List<String> launcherModIds;
 
         private CachedData(
                 List<DiscoveredConfig> configResults,
-                String metadataModId,
-                List<String> annotationModIds,
+                @Nullable ModIdentity metadataIdentity,
+                List<ModIdentity> annotationIdentities,
                 List<String> mappedModIds,
                 List<String> launcherModIds) {
             this.configResults = configResults;
-            this.metadataModId = metadataModId;
-            this.annotationModIds = annotationModIds;
+            this.metadataIdentity = metadataIdentity;
+            this.annotationIdentities = annotationIdentities;
             this.mappedModIds = mappedModIds;
             this.launcherModIds = launcherModIds;
         }
@@ -536,12 +604,13 @@ final class JarDiscoveryCache {
             return this.configResults;
         }
 
-        String metadataModId() {
-            return this.metadataModId;
+        @Nullable
+        ModIdentity metadataIdentity() {
+            return this.metadataIdentity;
         }
 
-        List<String> annotationModIds() {
-            return this.annotationModIds;
+        List<ModIdentity> annotationIdentities() {
+            return this.annotationIdentities;
         }
 
         List<String> mappedModIds() {
@@ -591,8 +660,9 @@ final class JarDiscoveryCache {
         private final FileStamp stamp;
         private final byte[] fingerprint;
         private final List<DiscoveredConfig> configResults;
-        private final String metadataModId;
-        private final List<String> annotationModIds;
+        @Nullable
+        private final ModIdentity metadataIdentity;
+        private final List<ModIdentity> annotationIdentities;
         private final List<String> mappedModIds;
         private final List<String> launcherModIds;
         private final CachedData data;
@@ -601,19 +671,19 @@ final class JarDiscoveryCache {
                 FileStamp stamp,
                 byte[] fingerprint,
                 List<DiscoveredConfig> configResults,
-                String metadataModId,
-                List<String> annotationModIds,
+                @Nullable ModIdentity metadataIdentity,
+                List<ModIdentity> annotationIdentities,
                 List<String> mappedModIds,
                 List<String> launcherModIds) {
             this.stamp = stamp;
             this.fingerprint = fingerprint;
             this.configResults = configResults;
-            this.metadataModId = metadataModId;
-            this.annotationModIds = annotationModIds;
+            this.metadataIdentity = metadataIdentity;
+            this.annotationIdentities = annotationIdentities;
             this.mappedModIds = mappedModIds;
             this.launcherModIds = launcherModIds;
             this.data = new CachedData(
-                    configResults, metadataModId, annotationModIds, mappedModIds, launcherModIds);
+                    configResults, metadataIdentity, annotationIdentities, mappedModIds, launcherModIds);
         }
 
         private Entry withStamp(FileStamp stamp) {
@@ -622,8 +692,8 @@ final class JarDiscoveryCache {
                     stamp,
                     this.fingerprint,
                     this.configResults,
-                    this.metadataModId,
-                    this.annotationModIds,
+                    this.metadataIdentity,
+                    this.annotationIdentities,
                     this.mappedModIds,
                     this.launcherModIds);
         }

@@ -111,6 +111,10 @@ public @interface MixinConfig {
      * A failed condition logs a diagnostic; it prevents registration only when {@link #disableMixin()}
      * is {@code true}. Repeat this annotation to apply multiple conditions.
      *
+     * <p>{@link #modName()} and {@link #targetVersionRange()} narrow the condition to a specific
+     * build of the target mod. A present mod that fails either constraint counts as a different mod:
+     * a {@code desired} condition then fails, and an undesired one is satisfied.
+     *
      * @since 1.2.0
      */
     @Retention(RetentionPolicy.RUNTIME)
@@ -122,6 +126,27 @@ public @interface MixinConfig {
          * @since 1.2.0
          */
         String modid();
+
+        /**
+         * Constrains the condition to a mod whose discovered display name matches exactly,
+         * telling forks that share a mod id apart. A present mod with a different or unknown
+         * display name does not fit the condition; an absent mod is judged by {@link #desired()} alone.
+         *
+         * @return display name the target mod must report, or an empty string to accept any name
+         * @since 1.5.0
+         */
+        String modName() default "";
+
+        /**
+         * Constrains the condition to a mod whose discovered version lies within this range,
+         * using the syntax of {@link net.minecraftforge.fml.common.Mod#dependencies()}. It is
+         * checked only once {@link #modName()} fits. An unknown version fits no range, and an
+         * invalid range is reported and ignored.
+         *
+         * @return version range the target mod must satisfy, or an empty string to accept any version
+         * @since 1.5.0
+         */
+        String targetVersionRange() default "";
 
         /**
          * Returns the required presence state for the target mod.

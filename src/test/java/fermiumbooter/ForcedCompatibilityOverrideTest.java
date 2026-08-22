@@ -43,6 +43,11 @@ class ForcedCompatibilityOverrideTest {
         @Config.Name("Enabled")
         @MixinConfig.EarlyMixin(name = "mixins.override.json")
         @MixinConfig.CompatHandling(modid = "minecraft", desired = false)
+        @MixinConfig.CompatHandling(
+                modid = "minecraft",
+                modName = "Not Minecraft",
+                targetVersionRange = "[9.9,)",
+                desired = true)
         public static boolean enabled;
     }
 }

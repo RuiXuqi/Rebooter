@@ -1,12 +1,13 @@
 package fermiumbooter.rebooter.discovery;
 
+import org.apache.commons.lang3.StringUtils;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.Opcodes;
 
 import java.util.List;
 
 final class CompatAnnotationVisitor {
-    private static final int RESULT_SCHEMA_VERSION = 1;
+    private static final int RESULT_SCHEMA_VERSION = 2;
     private static final String COMPAT_HANDLING = "Lfermiumbooter/annotations/MixinConfig$CompatHandling;";
     private static final String COMPAT_HANDLING_CONTAINER = "Lfermiumbooter/annotations/MixinConfig$CompatHandlingContainer;";
     private static final String COMPAT_HANDLINGS = "Lfermiumbooter/annotations/MixinConfig$CompatHandlings;";
@@ -19,7 +20,7 @@ final class CompatAnnotationVisitor {
                 + COMPAT_HANDLING + '\n'
                 + COMPAT_HANDLING_CONTAINER + '\n'
                 + COMPAT_HANDLINGS + '\n'
-                + "defaults:modid=;desired=true;disable=true;warn=true;reason=\n";
+                + "defaults:modid=;modName=;targetVersionRange=;desired=true;disable=true;warn=true;reason=\n";
     }
 
     static AnnotationVisitor create(String descriptor, List<CompatRule> destination) {
@@ -63,6 +64,8 @@ final class CompatAnnotationVisitor {
     private static final class RuleVisitor extends AnnotationVisitor {
         private final List<CompatRule> destination;
         private String modid = "";
+        private String modName;
+        private String modVersionRange;
         private boolean desired = true;
         private boolean disableMixin = true;
         private boolean warnIngame = true;
@@ -77,6 +80,10 @@ final class CompatAnnotationVisitor {
         public void visit(String name, Object value) {
             if ("modid".equals(name) && value instanceof String) {
                 this.modid = (String) value;
+            } else if ("modName".equals(name) && value instanceof String) {
+                this.modName = blankToNull((String) value);
+            } else if ("targetVersionRange".equals(name) && value instanceof String) {
+                this.modVersionRange = blankToNull((String) value);
             } else if ("desired".equals(name) && value instanceof Boolean) {
                 this.desired = (Boolean) value;
             } else if ("disableMixin".equals(name) && value instanceof Boolean) {
@@ -92,10 +99,16 @@ final class CompatAnnotationVisitor {
         public void visitEnd() {
             this.destination.add(new CompatRule(
                     this.modid,
+                    this.modName,
+                    this.modVersionRange,
                     this.desired,
                     this.disableMixin,
                     this.warnIngame,
                     this.reason));
+        }
+
+        private static String blankToNull(String value) {
+            return StringUtils.isBlank(value) ? null : value;
         }
     }
 }

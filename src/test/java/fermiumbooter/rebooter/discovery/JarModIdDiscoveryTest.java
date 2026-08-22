@@ -98,7 +98,7 @@ class JarModIdDiscoveryTest {
         ClassScanResult metadata = AsmClassMetadataReader.read(
                 prefiltered.classBytes(), prefiltered.annotationKinds());
 
-        assertEquals("combined_mod", metadata.modId());
+        assertEquals(ModIdentity.of("combined_mod", null, null), metadata.modIdentity());
         assertNotNull(metadata.configResult());
         assertEquals("combined-config", metadata.configResult().configName());
         assertEquals("mixins.combined.json", metadata.configResult().toggles().get(0).earlyMixinName());

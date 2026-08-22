@@ -19,6 +19,9 @@ public final class RuntimeVerification {
         RuntimeProbe.requireApplied(Case.CURRENT_DEFAULT_LATE);
         RuntimeProbe.requireApplied(Case.CURRENT_COMPAT_WARNING_LATE);
         RuntimeProbe.requireNotApplied(Case.CURRENT_COMPAT_DISABLED_LATE);
+        RuntimeProbe.requireApplied(Case.CURRENT_IDENTITY_MATCHED_LATE);
+        RuntimeProbe.requireApplied(Case.CURRENT_VERSION_WARNING_LATE);
+        RuntimeProbe.requireNotApplied(Case.CURRENT_FORK_DISABLED_LATE);
         RuntimeProbe.requireApplied(Case.LEGACY_LIFECYCLE_EARLY);
         RuntimeProbe.requireApplied(Case.LEGACY_LIFECYCLE_LATE);
         RuntimeProbe.requireApplied(Case.LEGACY_NESTED_LATE);

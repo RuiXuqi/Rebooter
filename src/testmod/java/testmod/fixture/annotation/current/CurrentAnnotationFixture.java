@@ -46,6 +46,43 @@ public final class CurrentAnnotationFixture {
             reason = "Expected disabling mismatch")
     public static boolean compatibilityDisabled;
 
+    @Config.Name("IdentityMatched")
+    @MixinConfig.MixinToggle(
+            lateMixin = "testmod/mixins/annotation/current/mixins.identity-matched-late.json",
+            defaultValue = true)
+    @MixinConfig.CompatHandling(
+            modid = "minecraft",
+            modName = "Minecraft",
+            targetVersionRange = "[1.12,1.13)",
+            desired = true,
+            reason = "Minecraft 1.12 must be the running game")
+    public static boolean identityMatched;
+
+    @Config.Name("ForkDisabled")
+    @MixinConfig.MixinToggle(
+            lateMixin = "testmod/mixins/annotation/current/mixins.fork-disabled-late.json",
+            defaultValue = true)
+    @MixinConfig.CompatHandling(
+            modid = "minecraft",
+            modName = "Not Minecraft",
+            desired = true,
+            warnIngame = false,
+            reason = "Expected fork mismatch")
+    public static boolean forkDisabled;
+
+    @Config.Name("VersionWarningOnly")
+    @MixinConfig.MixinToggle(
+            lateMixin = "testmod/mixins/annotation/current/mixins.version-warning-late.json",
+            defaultValue = true)
+    @MixinConfig.CompatHandling(
+            modid = "minecraft",
+            targetVersionRange = "[2.0,)",
+            desired = true,
+            disableMixin = false,
+            warnIngame = false,
+            reason = "Expected version mismatch")
+    public static boolean versionWarningOnly;
+
     @Config.Name("MixinSquared")
     @MixinConfig.MixinToggle(
             lateMixin = "testmod/mixins/feature/mixins.mixinsquared.json",

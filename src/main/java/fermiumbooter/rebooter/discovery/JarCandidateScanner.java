@@ -97,7 +97,7 @@ final class JarCandidateScanner {
         try (JarFile jar = new JarFile(file, false)) {
             MutableJarMetadata metadata = new MutableJarMetadata();
             boolean optiFine = this.readLauncherMetadata(jar, file, metadata);
-            metadata.metadataModId = this.readMetadataModId(jar, file);
+            metadata.metadataIdentity = this.readMetadataIdentity(jar, file);
             this.scanEntries(jar, file, optiFine, metadata);
 
             JarDiscoveryCache.FileStamp finalStamp = JarDiscoveryCache.stamp(file);
@@ -119,8 +119,8 @@ final class JarCandidateScanner {
                         finalStamp,
                         fingerprint,
                         metadata.configResults,
-                        metadata.metadataModId,
-                        metadata.annotationModIds,
+                        metadata.metadataIdentity,
+                        metadata.annotationIdentities.values(),
                         metadata.mappedModIds,
                         metadata.launcherModIds);
             }
@@ -145,7 +145,7 @@ final class JarCandidateScanner {
         return false;
     }
 
-    private String readMetadataModId(JarFile jar, File file) {
+    private ModIdentity readMetadataIdentity(JarFile jar, File file) {
         long metadataStarted = this.statistics.start();
         JarEntry mcmodInfo = jar.getJarEntry("mcmod.info");
         try {
@@ -153,7 +153,7 @@ final class JarCandidateScanner {
                 return null;
             }
             try (InputStream input = jar.getInputStream(mcmodInfo)) {
-                return JsonInfoReader.firstModId(input);
+                return JsonInfoReader.firstMod(input);
             } catch (IOException e) {
                 Reference.LOGGER.debug("Skipping unreadable mcmod.info in {}", file, e);
                 return null;
@@ -191,8 +191,8 @@ final class JarCandidateScanner {
                 if (result.configResult() != null) {
                     metadata.configResults.add(result.configResult());
                 }
-                if (result.modId() != null) {
-                    metadata.annotationModIds.add(result.modId());
+                if (result.modIdentity() != null) {
+                    metadata.addAnnotationIdentity(result.modIdentity());
                 }
             } catch (IOException | RuntimeException e) {
                 if (!classFilterTimingRecorded) {
@@ -239,16 +239,23 @@ final class JarCandidateScanner {
 
     private static final class MutableJarMetadata {
         private final Set<String> mappedModIds = new HashSet<>();
-        private final Set<String> annotationModIds = new HashSet<>();
+        private final Map<String, ModIdentity> annotationIdentities = new LinkedHashMap<>();
         private final Set<String> launcherModIds = new HashSet<>();
         private final List<DiscoveredConfig> configResults = new ArrayList<>();
-        private String metadataModId;
+        private ModIdentity metadataIdentity;
+
+        // The first class declaring a mod id wins, so a cache hit restores the same identity.
+        private void addAnnotationIdentity(ModIdentity identity) {
+            if (!this.annotationIdentities.containsKey(identity.modId())) {
+                this.annotationIdentities.put(identity.modId(), identity);
+            }
+        }
 
         private JarScanResult result() {
             return JarScanResult.scanned(
                     this.mappedModIds,
-                    this.metadataModId,
-                    this.annotationModIds,
+                    this.metadataIdentity,
+                    this.annotationIdentities.values(),
                     this.launcherModIds,
                     this.configResults);
         }

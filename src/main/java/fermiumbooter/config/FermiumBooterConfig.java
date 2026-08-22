@@ -10,7 +10,8 @@ public final class FermiumBooterConfig {
     private static final String PREFIX = Reference.MOD_ID + ".config.";
     private static final String[] DEFAULT_MOD_DISCOVERY_PACKAGE_MAPPINGS = new String[]{
             "git.jbredwards.jsonpaintings=jsonpaintings",
-            "net.jan.moddirector=moddirector"
+            "net.jan.moddirector=moddirector",
+            "gg.essential=essential"
     };
 
     @Config.LangKey(PREFIX + "enableCustomNetworkVersion")

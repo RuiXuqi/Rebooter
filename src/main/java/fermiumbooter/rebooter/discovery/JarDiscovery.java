@@ -13,10 +13,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 public final class JarDiscovery {
-    private static final Set<String> BUILTIN_MODS = new HashSet<>(
-            Arrays.asList("minecraft", "mcp", "FML", "forge"));
-    private static final Set<String> MAPPED_MODS = new HashSet<>();
-    private static final Set<String> DISCOVERED_MODS = new HashSet<>();
+    private static final ModIndex MOD_INDEX = new ModIndex();
     private static final List<DiscoveredConfig> CONFIG_RESULTS = new ArrayList<>();
     private static boolean indexed;
     private static boolean configsRegistered;
@@ -58,9 +55,12 @@ public final class JarDiscovery {
             return false;
         }
         indexOnce();
-        return containsModId(BUILTIN_MODS, modId)
-                || containsModId(DISCOVERED_MODS, modId)
-                || containsModId(MAPPED_MODS, modId);
+        return MOD_INDEX.isPresent(modId);
+    }
+
+    static synchronized ModIndex modIndex() {
+        indexOnce();
+        return MOD_INDEX;
     }
 
     public static synchronized void clear() {
@@ -104,28 +104,61 @@ public final class JarDiscovery {
                 preparedFingerprints,
                 fingerprinter,
                 statistics);
-        Set<String> mappedMods = new HashSet<>();
-        Set<String> discoveredMods = new HashSet<>();
+        List<ModIdentity> metadataIdentities = new ArrayList<>();
+        Set<String> mappedModIds = new LinkedHashSet<>();
+        Set<String> launcherModIds = new LinkedHashSet<>();
+        List<ModIdentity> annotationIdentities = new ArrayList<>();
         List<DiscoveredConfig> configResults = new ArrayList<>();
         for (File candidate : candidates) {
             JarScanResult result = scanner.scan(candidate);
             if (result.isIgnored()) {
                 continue;
             }
-            mappedMods.addAll(result.mappedModIds());
-            discoveredMods.addAll(result.discoveredModIds());
+            if (result.metadataIdentity() != null) {
+                metadataIdentities.add(result.metadataIdentity());
+            }
+            mappedModIds.addAll(result.mappedModIds());
+            launcherModIds.addAll(result.launcherModIds());
+            annotationIdentities.addAll(result.annotationIdentities());
             configResults.addAll(result.configResults());
         }
 
         long cacheSaveStarted = statistics.start();
         cache.save();
         statistics.cacheSave(statistics.elapsed(cacheSaveStarted));
-        MAPPED_MODS.addAll(mappedMods);
-        DISCOVERED_MODS.addAll(discoveredMods);
+        registerIdentities(metadataIdentities, mappedModIds, launcherModIds, annotationIdentities);
         CONFIG_RESULTS.addAll(configResults);
         indexed = true;
         Reference.LOGGER.info("ASM discovery completed in {} ms", stopwatch.elapsed(TimeUnit.MILLISECONDS));
         statistics.logIndex();
+    }
+
+    /**
+     * Registers every discovered mod id, letting the later source win: built-ins, then
+     * {@code mcmod.info}, then the sources that only prove presence, then {@code @Mod} annotations,
+     * which restore the name and version a package mapping cleared.
+     */
+    private static void registerIdentities(
+            List<ModIdentity> metadataIdentities,
+            Set<String> mappedModIds,
+            Set<String> launcherModIds,
+            List<ModIdentity> annotationIdentities) {
+        MOD_INDEX.overwrite(ModIdentity.of("minecraft", "Minecraft", "1.12.2"));
+        MOD_INDEX.overwrite(ModIdentity.of("mcp", "Minecraft Coder Pack", "9.42"));
+        MOD_INDEX.overwrite(ModIdentity.of("FML", "Forge Mod Loader", null));
+        MOD_INDEX.overwrite(ModIdentity.of("forge", "Minecraft Forge", null));
+        for (ModIdentity identity : metadataIdentities) {
+            MOD_INDEX.overwrite(identity);
+        }
+        for (String modId : mappedModIds) {
+            MOD_INDEX.overwrite(ModIdentity.presenceOnly(modId));
+        }
+        for (String modId : launcherModIds) {
+            MOD_INDEX.addIfAbsent(modId);
+        }
+        for (ModIdentity identity : annotationIdentities) {
+            MOD_INDEX.fillDeclared(identity);
+        }
     }
 
     @VisibleForTesting
@@ -148,18 +181,6 @@ public final class JarDiscovery {
         return profile.toString();
     }
 
-    private static boolean containsModId(Set<String> modIds, String modId) {
-        if (modIds.contains(modId)) {
-            return true;
-        }
-        for (String candidate : modIds) {
-            if (modId.equalsIgnoreCase(candidate)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     public static int getWarningCount() {
         return warningCount;
     }
@@ -170,8 +191,7 @@ public final class JarDiscovery {
         configsRegistered = false;
         warningCount = 0;
         statistics = new DiscoveryStatistics();
-        MAPPED_MODS.clear();
-        DISCOVERED_MODS.clear();
+        MOD_INDEX.clear();
         CONFIG_RESULTS.clear();
         ForgeConfigAccess.clearCompatibilityCache();
     }

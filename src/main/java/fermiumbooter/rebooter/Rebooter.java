@@ -15,7 +15,7 @@ import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
         }
 )
 public final class Rebooter {
-    public static final String COMPAT_VERSION = "1.4.1";
+    public static final String COMPAT_VERSION = "1.5.1";
 
     @Mod.EventHandler
     public void preInit(FMLPostInitializationEvent event) {

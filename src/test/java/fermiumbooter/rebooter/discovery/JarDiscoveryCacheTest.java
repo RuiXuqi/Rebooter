@@ -148,8 +148,8 @@ class JarDiscoveryCacheTest {
                 JarDiscoveryCache.stamp(source.toFile()),
                 fingerprint,
                 Collections.singletonList(cachedResult()),
-                "metadata_mod",
-                Collections.singleton("annotation_mod"),
+                ModIdentity.of("metadata_mod", "Metadata Mod", "1.2.3"),
+                Collections.singletonList(ModIdentity.of("annotation_mod", "Annotation Mod", null)),
                 Collections.singleton("mapped_mod"),
                 Collections.singleton("launcher_mod"));
         first.save();
@@ -159,8 +159,10 @@ class JarDiscoveryCacheTest {
                 source.toFile(), JarDiscoveryCache.stamp(source.toFile()), fingerprint);
 
         assertNotNull(cached);
-        assertEquals("metadata_mod", cached.metadataModId());
-        assertEquals(Collections.singletonList("annotation_mod"), cached.annotationModIds());
+        assertEquals(ModIdentity.of("metadata_mod", "Metadata Mod", "1.2.3"), cached.metadataIdentity());
+        assertEquals(
+                Collections.singletonList(ModIdentity.of("annotation_mod", "Annotation Mod", null)),
+                cached.annotationIdentities());
         assertEquals(Collections.singletonList("mapped_mod"), cached.mappedModIds());
         assertEquals(Collections.singletonList("launcher_mod"), cached.launcherModIds());
         assertCachedResult(cached.configResults().get(0));
@@ -238,8 +240,8 @@ class JarDiscoveryCacheTest {
                 JarDiscoveryCache.stamp(source.toFile()),
                 fingerprint,
                 Collections.singletonList(cachedResult()),
-                "must_not_restore",
-                Collections.singleton("must_not_restore"),
+                ModIdentity.presenceOnly("must_not_restore"),
+                Collections.singletonList(ModIdentity.presenceOnly("must_not_restore")),
                 Collections.singleton("must_not_restore"),
                 Collections.singleton("must_not_restore"));
         first.save();
@@ -261,8 +263,8 @@ class JarDiscoveryCacheTest {
                 JarDiscoveryCache.stamp(source.toFile()),
                 fingerprint,
                 Collections.singletonList(cachedResult()),
-                "must_not_restore",
-                Collections.singleton("must_not_restore"),
+                ModIdentity.presenceOnly("must_not_restore"),
+                Collections.singletonList(ModIdentity.presenceOnly("must_not_restore")),
                 Collections.singleton("must_not_restore"),
                 Collections.singleton("must_not_restore"));
         first.save();
@@ -360,7 +362,7 @@ class JarDiscoveryCacheTest {
                 JarDiscoveryCache.stamp(source.toFile()),
                 JarDiscoveryCache.contentFingerprint(source.toFile()),
                 Collections.emptyList(),
-                "old_mod",
+                ModIdentity.presenceOnly("old_mod"),
                 Collections.emptySet(),
                 Collections.emptySet(),
                 Collections.emptySet());
@@ -512,6 +514,8 @@ class JarDiscoveryCacheTest {
                         true,
                         Collections.singletonList(new CompatRule(
                                 "cached_mod",
+                                "Cached Mod",
+                                "[1.2,2.0)",
                                 false,
                                 false,
                                 true,
@@ -529,6 +533,8 @@ class JarDiscoveryCacheTest {
         assertEquals(1, toggle.compatibilityRules().size());
         CompatRule rule = toggle.compatibilityRules().get(0);
         assertEquals("cached_mod", rule.modid());
+        assertEquals("Cached Mod", rule.modName());
+        assertEquals("[1.2,2.0)", rule.modVersionRange());
         assertFalse(rule.desired());
         assertFalse(rule.disableMixin());
         assertTrue(rule.warnIngame());
@@ -557,6 +563,8 @@ class JarDiscoveryCacheTest {
         payload.get();
         int ruleCount = payload.getInt();
         for (int index = 0; index < ruleCount; index++) {
+            skipString(payload);
+            skipString(payload);
             skipString(payload);
             payload.position(payload.position() + 3);
             skipString(payload);
