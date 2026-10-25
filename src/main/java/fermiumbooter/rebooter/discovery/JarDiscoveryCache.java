@@ -2,6 +2,7 @@ package fermiumbooter.rebooter.discovery;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
+import fermiumbooter.rebooter.RebooterConfig;
 import fermiumbooter.rebooter.Reference;
 
 import javax.annotation.Nullable;
@@ -14,13 +15,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
-final class JarDiscoveryCache {
-    private static final String ENABLED_PROPERTY = "rebooter.discoveryCache";
+class JarDiscoveryCache {
     private static final int FINGERPRINT_BUFFER_SIZE = 64 * 1024;
     // RBTDISC Rebooter Discovery
     // Bump when format updated
@@ -79,7 +80,7 @@ final class JarDiscoveryCache {
             if (size <= 0 || size > MAX_FILE_SIZE) {
                 throw new IOException("cache size is outside the accepted range");
             }
-            Map<String, Entry> loaded = decode(Files.readAllBytes(file), scanProfileDigest);
+            Map<String, Entry> loaded = decode(file, scanProfileDigest);
             Reference.LOGGER.info("Loaded JAR discovery cache with {} JAR entries in {} ms",
                     loaded.size(), stopwatch.elapsed(TimeUnit.MILLISECONDS));
             return new JarDiscoveryCache(file, loaded, false, true, scanProfileDigest);
@@ -111,11 +112,27 @@ final class JarDiscoveryCache {
         return this.enabled && this.loaded.containsKey(source.getAbsolutePath());
     }
 
+    /**
+     * A cached file state that is completely unchanged proves the fingerprint matches without
+     * re-hashing the file, as long as stamp verification is allowed to skip the strong check.
+     */
+    boolean hasStampMatchedEntry(File source, FileStamp stamp) {
+        if (!this.enabled) return false;
+        Entry entry = this.loaded.get(source.getAbsolutePath());
+        return entry != null && entry.stamp.equals(stamp);
+    }
+
     CachedData lookup(File source, FileStamp stamp, byte[] fingerprint) {
+        return this.lookup(source, stamp, fingerprint, false);
+    }
+
+    CachedData lookup(File source, FileStamp stamp, byte[] fingerprint, boolean stampVerified) {
         if (!this.enabled) return null;
         String path = source.getAbsolutePath();
         Entry entry = this.loaded.get(path);
-        if (entry == null || !Arrays.equals(entry.fingerprint, fingerprint)) return null;
+        if (entry == null) return null;
+        if (!stampVerified && !Arrays.equals(entry.fingerprint, fingerprint)) return null;
+        if (stampVerified && !entry.stamp.equals(stamp)) return null;
         Entry refreshed = entry.withStamp(stamp);
         this.current.put(path, refreshed);
         this.dirty |= refreshed != entry;
@@ -144,6 +161,14 @@ final class JarDiscoveryCache {
         this.dirty = true;
     }
 
+    /**
+     * A view that serializes lookups and recordings against the shared mutable state so candidate
+     * scanners can run on worker threads. The loaded snapshot stays read-only and needs no guard.
+     */
+    JarDiscoveryCache synchronizedView() {
+        return new SynchronizedJarDiscoveryCache(this);
+    }
+
     void save() {
         if (!this.enabled || (!this.dirty && this.current.size() == this.loaded.size())) return;
         Stopwatch stopwatch = Stopwatch.createStarted();
@@ -155,7 +180,6 @@ final class JarDiscoveryCache {
             temporary = Files.createTempFile(parent, "jar-discovery-", ".tmp");
             try (FileOutputStream fileOutput = new FileOutputStream(temporary.toFile())) {
                 fileOutput.write(bytes);
-                fileOutput.getFD().sync();
             }
             Files.move(
                     temporary,
@@ -220,8 +244,12 @@ final class JarDiscoveryCache {
         return fileBytes.toByteArray();
     }
 
-    private static Map<String, Entry> decode(byte[] bytes, byte[] expectedScanProfileDigest) throws IOException {
-        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes))) {
+    private static Map<String, Entry> decode(Path file, byte[] expectedScanProfileDigest) throws IOException {
+        MessageDigest payloadDigest = sha256();
+        byte[] expectedDigest = new byte[DIGEST_LENGTH];
+        int payloadLength;
+        try (DataInputStream input = new DataInputStream(
+                new BufferedInputStream(Files.newInputStream(file)))) {
             if (input.readLong() != MAGIC) {
                 throw new IOException("incorrect cache magic");
             }
@@ -233,25 +261,42 @@ final class JarDiscoveryCache {
             if (!MessageDigest.isEqual(expectedScanProfileDigest, cachedScanProfileDigest)) {
                 throw new IOException("cache belongs to a different class scan profile");
             }
-            int payloadLength = readCount(input, MAX_PAYLOAD_SIZE, "payload length");
-            byte[] expectedDigest = new byte[DIGEST_LENGTH];
+            payloadLength = readCount(input, MAX_PAYLOAD_SIZE, "payload length");
             input.readFully(expectedDigest);
-            if (payloadLength != input.available()) {
-                throw new IOException("cache payload length does not match the file");
+            try (DigestInputStream payloadStream = new DigestInputStream(input, payloadDigest)) {
+                decodePayload(new DataInputStream(payloadStream), payloadLength);
             }
-            byte[] payload = new byte[payloadLength];
-            input.readFully(payload);
-            if (!MessageDigest.isEqual(expectedDigest, sha256().digest(payload))) {
-                throw new IOException("cache checksum does not match");
-            }
-            return decodePayload(payload);
         } catch (EOFException e) {
             throw new IOException("truncated cache", e);
         }
+        if (!MessageDigest.isEqual(expectedDigest, payloadDigest.digest())) {
+            throw new IOException("cache checksum does not match");
+        }
+        return decodePayload(file, payloadLength);
     }
 
-    private static Map<String, Entry> decodePayload(byte[] payload) throws IOException {
-        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload))) {
+    private static Map<String, Entry> decodePayload(Path file, int payloadLength) throws IOException {
+        byte[] payload = new byte[payloadLength];
+        long payloadOffset = Files.size(file) - payloadLength;
+        try (InputStream fileStream = Files.newInputStream(file)) {
+            long skipped = 0L;
+            while (skipped < payloadOffset) {
+                long amount = fileStream.skip(payloadOffset - skipped);
+                if (amount <= 0L) {
+                    throw new EOFException("unable to reach the cache payload");
+                }
+                skipped += amount;
+            }
+            new DataInputStream(fileStream).readFully(payload);
+        }
+        return decodePayload(new DataInputStream(new ByteArrayInputStream(payload)), payloadLength);
+    }
+
+    private static Map<String, Entry> decodePayload(DataInputStream input, int payloadLength) throws IOException {
+        try {
+            if (payloadLength != input.available()) {
+                throw new IOException("cache payload length does not match the file");
+            }
             int entryCount = readCount(input, MAX_JARS, "JAR count");
             Map<String, Entry> entries = new LinkedHashMap<>();
             NestedCounts nestedCounts = new NestedCounts();
@@ -565,18 +610,26 @@ final class JarDiscoveryCache {
     }
 
     private static boolean cacheEnabled() {
-        String configured = System.getProperty(ENABLED_PROPERTY);
-        if (configured == null || "true".equalsIgnoreCase(configured.trim())) {
-            return true;
+        return RebooterConfig.cache.enabled;
+    }
+
+    static VerifyMode verifyMode() {
+        String configured = RebooterConfig.cache.verifyMode;
+        if ("always".equalsIgnoreCase(configured.trim())) {
+            return VerifyMode.ALWAYS;
         }
-        if ("false".equalsIgnoreCase(configured.trim())) {
-            return false;
+        if ("auto".equalsIgnoreCase(configured.trim())) {
+            return VerifyMode.AUTO;
         }
         Reference.LOGGER.warn(
-                "Ignoring invalid {} value '{}'; expected true or false",
-                ENABLED_PROPERTY,
+                "Ignoring invalid cache verify mode '{}'; expected always or auto",
                 configured);
-        return true;
+        return VerifyMode.ALWAYS;
+    }
+
+    enum VerifyMode {
+        ALWAYS,
+        AUTO
     }
 
     static final class CachedData {
@@ -759,8 +812,89 @@ final class JarDiscoveryCache {
             return this.digest.digest();
         }
 
+        /**
+         * Hashes everything the stream yields without closing it, so a scan can fingerprint the
+         * file in the same pass that already reads it.
+         */
+        byte[] fingerprint(InputStream input) throws IOException {
+            this.digest.reset();
+            this.bytesRead = 0L;
+            int read;
+            while ((read = input.read(this.buffer)) >= 0) {
+                this.digest.update(this.buffer, 0, read);
+                this.bytesRead += read;
+            }
+            return this.digest.digest();
+        }
+
         long bytesRead() {
             return this.bytesRead;
+        }
+    }
+
+    private static final class SynchronizedJarDiscoveryCache extends JarDiscoveryCache {
+        private final JarDiscoveryCache delegate;
+
+        private SynchronizedJarDiscoveryCache(JarDiscoveryCache delegate) {
+            super(null, Collections.emptyMap(), false, false, new byte[0]);
+            this.delegate = delegate;
+        }
+
+        @Override
+        boolean isEnabled() {
+            return this.delegate.isEnabled();
+        }
+
+        @Override
+        boolean hasLoadedEntry(File source) {
+            return this.delegate.hasLoadedEntry(source);
+        }
+
+        @Override
+        boolean hasStampMatchedEntry(File source, FileStamp stamp) {
+            return this.delegate.hasStampMatchedEntry(source, stamp);
+        }
+
+        @Override
+        CachedData lookup(File source, FileStamp stamp, byte[] fingerprint) {
+            return this.lookup(source, stamp, fingerprint, false);
+        }
+
+        @Override
+        CachedData lookup(File source, FileStamp stamp, byte[] fingerprint, boolean stampVerified) {
+            synchronized (this.delegate) {
+                return this.delegate.lookup(source, stamp, fingerprint, stampVerified);
+            }
+        }
+
+        @Override
+        void record(
+                File source,
+                FileStamp stamp,
+                byte[] fingerprint,
+                List<DiscoveredConfig> configResults,
+                @Nullable ModIdentity metadataIdentity,
+                Collection<ModIdentity> annotationIdentities,
+                Set<String> mappedModIds,
+                Set<String> launcherModIds) {
+            synchronized (this.delegate) {
+                this.delegate.record(
+                        source,
+                        stamp,
+                        fingerprint,
+                        configResults,
+                        metadataIdentity,
+                        annotationIdentities,
+                        mappedModIds,
+                        launcherModIds);
+            }
+        }
+
+        @Override
+        void save() {
+            synchronized (this.delegate) {
+                this.delegate.save();
+            }
         }
     }
 

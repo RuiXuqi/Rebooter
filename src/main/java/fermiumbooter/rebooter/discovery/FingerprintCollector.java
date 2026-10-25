@@ -24,10 +24,16 @@ final class FingerprintCollector {
             JarDiscoveryCache.ContentFingerprinter firstFingerprinter) {
         Map<File, Result> results = new HashMap<>();
         List<Request> requests = new ArrayList<>();
+        boolean stampVerification = JarDiscoveryCache.verifyMode() == JarDiscoveryCache.VerifyMode.AUTO;
         for (File candidate : candidates) {
             if (!cache.hasLoadedEntry(candidate)) continue;
             try {
-                requests.add(new Request(candidate, JarDiscoveryCache.stamp(candidate)));
+                JarDiscoveryCache.FileStamp stamp = JarDiscoveryCache.stamp(candidate);
+                if (stampVerification && cache.hasStampMatchedEntry(candidate, stamp)) {
+                    results.put(candidate, Result.stampMatched(stamp));
+                } else {
+                    requests.add(new Request(candidate, stamp));
+                }
             } catch (IOException e) {
                 results.put(candidate, Result.failure(e));
             }
@@ -183,23 +189,30 @@ final class FingerprintCollector {
         private final byte[] fingerprint;
         private final IOException failure;
         private final long bytesRead;
+        private final boolean stampMatched;
 
         private Result(
                 JarDiscoveryCache.FileStamp stamp,
                 byte[] fingerprint,
                 IOException failure,
-                long bytesRead) {
+                long bytesRead,
+                boolean stampMatched) {
             this.stamp = stamp;
             this.fingerprint = fingerprint;
             this.failure = failure;
             this.bytesRead = bytesRead;
+            this.stampMatched = stampMatched;
         }
 
         private static Result success(
                 JarDiscoveryCache.FileStamp stamp,
                 byte[] fingerprint,
                 long bytesRead) {
-            return new Result(stamp, fingerprint, null, bytesRead);
+            return new Result(stamp, fingerprint, null, bytesRead, false);
+        }
+
+        private static Result stampMatched(JarDiscoveryCache.FileStamp stamp) {
+            return new Result(stamp, null, null, 0L, true);
         }
 
         private static Result failure(IOException failure) {
@@ -207,7 +220,7 @@ final class FingerprintCollector {
         }
 
         private static Result failure(IOException failure, long bytesRead) {
-            return new Result(null, null, failure, bytesRead);
+            return new Result(null, null, failure, bytesRead, false);
         }
 
         JarDiscoveryCache.FileStamp stamp() {
@@ -216,6 +229,10 @@ final class FingerprintCollector {
 
         byte[] fingerprint() {
             return this.fingerprint;
+        }
+
+        boolean stampMatched() {
+            return this.stampMatched;
         }
 
         IOException failure() {

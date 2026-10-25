@@ -22,9 +22,9 @@ class ForcedCompatibilityOverrideTest {
     void forcedOverrideAllowsACompatibilityFailure() throws Exception {
         Path configDirectory = Files.createDirectories(this.gameDirectory.resolve("config"));
         Files.write(
-                configDirectory.resolve("fermiumbooter.cfg"),
-                ("general {\n"
-                        + "    B:\"Override Mixin Config Compatibility Checks\"=true\n"
+                configDirectory.resolve("rebooter.cfg"),
+                ("mixins {\n"
+                        + "    B:ignoreCompatChecks=true\n"
                         + "}\n")
                         .getBytes(StandardCharsets.UTF_8));
         Files.write(

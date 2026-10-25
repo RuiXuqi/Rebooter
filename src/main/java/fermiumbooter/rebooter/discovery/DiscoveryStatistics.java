@@ -5,8 +5,7 @@ import fermiumbooter.rebooter.Reference;
 import java.util.concurrent.TimeUnit;
 
 final class DiscoveryStatistics {
-    private static final String ENABLED_PROPERTY = "rebooter.discoveryStats";
-    private final boolean enabled = Boolean.parseBoolean(System.getProperty(ENABLED_PROPERTY, "false"));
+    private final boolean enabled;
     private long candidateCollectionNanos;
     private long cacheLoadNanos;
     private long cacheSaveNanos;
@@ -17,15 +16,45 @@ final class DiscoveryStatistics {
     private long fullClassReadAndAsmNanos;
     private long metadataNanos;
     private long configCompatNanos;
-    private int candidateCount;
-    private int cacheHits;
-    private int cacheMisses;
-    private int fingerprintCount;
-    private int entryCount;
-    private int prefilterCount;
-    private int asmCount;
-    private int metadataCount;
-    private int configResultCount;
+    private long candidateCount;
+    private long cacheHits;
+    private long cacheMisses;
+    private long fingerprintCount;
+    private long entryCount;
+    private long prefilterCount;
+    private long asmCount;
+    private long metadataCount;
+    private long configResultCount;
+
+    DiscoveryStatistics(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    DiscoveryStatistics newWorkerStatistics() {
+        return new DiscoveryStatistics(this.enabled);
+    }
+
+    void merge(DiscoveryStatistics workerStatistics) {
+        this.candidateCollectionNanos += workerStatistics.candidateCollectionNanos;
+        this.cacheLoadNanos += workerStatistics.cacheLoadNanos;
+        this.cacheSaveNanos += workerStatistics.cacheSaveNanos;
+        this.fingerprintNanos += workerStatistics.fingerprintNanos;
+        this.fingerprintBytes += workerStatistics.fingerprintBytes;
+        this.entryEnumerationNanos += workerStatistics.entryEnumerationNanos;
+        this.classFilterAndPrefilterNanos += workerStatistics.classFilterAndPrefilterNanos;
+        this.fullClassReadAndAsmNanos += workerStatistics.fullClassReadAndAsmNanos;
+        this.metadataNanos += workerStatistics.metadataNanos;
+        this.configCompatNanos += workerStatistics.configCompatNanos;
+        this.candidateCount += workerStatistics.candidateCount;
+        this.cacheHits += workerStatistics.cacheHits;
+        this.cacheMisses += workerStatistics.cacheMisses;
+        this.fingerprintCount += workerStatistics.fingerprintCount;
+        this.entryCount += workerStatistics.entryCount;
+        this.prefilterCount += workerStatistics.prefilterCount;
+        this.asmCount += workerStatistics.asmCount;
+        this.metadataCount += workerStatistics.metadataCount;
+        this.configResultCount += workerStatistics.configResultCount;
+    }
 
     long start() {
         return this.enabled ? System.nanoTime() : 0L;
@@ -140,19 +169,19 @@ final class DiscoveryStatistics {
     }
 
     int fingerprintCount() {
-        return this.fingerprintCount;
+        return (int) this.fingerprintCount;
     }
 
     int entryCount() {
-        return this.entryCount;
+        return (int) this.entryCount;
     }
 
     int prefilterCount() {
-        return this.prefilterCount;
+        return (int) this.prefilterCount;
     }
 
     int asmCount() {
-        return this.asmCount;
+        return (int) this.asmCount;
     }
 
     private static long millis(long nanos) {

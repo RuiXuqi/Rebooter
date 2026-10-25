@@ -19,6 +19,7 @@ final class ClassDescriptorPrefilter {
     private static final byte[] FORGE_MOD_BYTES = FORGE_MOD_DESCRIPTOR.getBytes(StandardCharsets.US_ASCII);
 
     private final byte[] utf8Buffer = new byte[Math.max(MIXIN_CONFIG_BYTES.length, FORGE_MOD_BYTES.length)];
+    private final byte[] completionBuffer = new byte[8192];
     private byte[] readBuffer = new byte[8192];
     private InputStream input;
     private int offset;
@@ -34,6 +35,9 @@ final class ClassDescriptorPrefilter {
         this.input = input;
         this.offset = 0;
         this.limit = 0;
+        if (this.readBuffer.length > 64 * 1024) {
+            this.readBuffer = new byte[8192];
+        }
         try {
             if (this.readInt() != CLASS_MAGIC) {
                 return Match.empty();
@@ -135,10 +139,9 @@ final class ClassDescriptorPrefilter {
         }
         ByteArrayOutputStream bytes = new ByteArrayOutputStream(this.limit + 4096);
         bytes.write(this.readBuffer, 0, this.limit);
-        byte[] buffer = new byte[8192];
         int read;
-        while ((read = remaining.read(buffer)) >= 0) {
-            bytes.write(buffer, 0, read);
+        while ((read = remaining.read(this.completionBuffer)) >= 0) {
+            bytes.write(this.completionBuffer, 0, read);
         }
         return bytes.toByteArray();
     }

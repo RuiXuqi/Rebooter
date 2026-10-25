@@ -7,6 +7,9 @@ public final class Reference {
     private Reference() {
     }
 
+    public static final String COMPAT_VERSION = "1.5.2";
+    public static final String INTERNAL_ID = "rebooter";
+
     public static final String MOD_ID = "{{ mod_id }}";
     public static final String MOD_NAME = "{{ mod_name }}";
     public static final String VERSION = "{{ mod_version }}";

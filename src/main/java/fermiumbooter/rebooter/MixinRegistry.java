@@ -26,7 +26,7 @@ public final class MixinRegistry {
         prepared = false;
         earlyHandedOff = false;
         lateHandedOff = false;
-        RebooterConfig.resetForTesting();
+        RebooterConfigState.resetForTesting();
         JarDiscovery.resetForTesting();
     }
 
@@ -99,7 +99,7 @@ public final class MixinRegistry {
 
     private static void prepare() {
         if (prepared) return;
-        RebooterConfig.apply();
+        RebooterConfigState.apply();
         JarDiscovery.registerConfigs();
         prepared = true;
     }

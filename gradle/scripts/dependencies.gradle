@@ -7,6 +7,9 @@ repositories {
     maven {
         name = 'CleanroomMC'
         url = 'https://maven.cleanroommc.com'
+        content {
+            includeGroup 'mezz'
+        }
     }
     maven {
         name = 'CurseMaven'
@@ -41,13 +44,6 @@ repositories {
 }
 
 dependencies {
-    // MB 10 stuff
-    if (propertyBool('use_mixins')) {
-        annotationProcessor 'org.ow2.asm:asm-debug-all:5.2'
-        annotationProcessor 'com.google.guava:guava:32.1.2-jre'
-        annotationProcessor 'com.google.code.gson:gson:2.8.9'
-    }
-
     def mixinSquared = 'com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.3'
     shaded (mixinSquared) {
         transitive = false
@@ -76,7 +72,7 @@ dependencies {
     // Full documentation: https://docs.modrinth.com/docs/tutorials/maven/
 
     // Example - Local dependencies:
-    // 'libs:ctm-1.2.1; << libs = folder name (/libs) in flatDir, ctm-1.2.1 = file name (ctm-1.2.1.jar)
+    // 'libs:jei:4.31.2 << libs = folder name (/libs) in flatDir, jei:4.31.2 = file name (jei-4.31.2.jar)
 
     // Common dependency types (configuration):
     // implementation = dependency available at both compile time and runtime
@@ -86,6 +82,8 @@ dependencies {
     // shaded = bundle dependencies into shadow output artifact (relocation configurable in shadowJar task)
     // modImplementation = mod dependency available at both compile time and runtime
     // modCompileOnly = mod dependency available only at compile time
+    // modRuntimeOnly = mod dependency available only at runtime
+    // modApi / modCompileOnlyApi = like their non-mod counterparts, only created with the `java-library` plugin
 
     // Transitive dependencies:
     // (Dependencies that your dependency depends on)

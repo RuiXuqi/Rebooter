@@ -1,136 +1,156 @@
 package fermiumbooter.rebooter;
 
 import com.google.common.annotations.VisibleForTesting;
-import fermiumbooter.config.FermiumBooterConfig;
-import fermiumbooter.rebooter.util.ForgeConfigAccess;
-import fermiumbooter.rebooter.util.GameDirectory;
+import net.minecraftforge.common.config.Config;
 
-import java.util.*;
-
+@Config(modid = Reference.MOD_ID, name = Reference.INTERNAL_ID, category = "")
 public final class RebooterConfig {
-    private static RebooterConfig instance;
-    private static boolean applied;
-    private final boolean overrideCompatibilityChecks;
-    private final List<String> additions;
-    private final List<String> removals;
-    // package - modIds
-    private final Map<String, Set<String>> modDiscoveryMappings;
-    private final Set<String> discoveryClassScanAllowlist;
+    private static final String PREFIX = Reference.MOD_ID + ".config.";
+    private static final String[] DEFAULT_PACKAGE_MAPPINGS = new String[]{
+            "git.jbredwards.jsonpaintings=jsonpaintings",
+            "net.jan.moddirector=moddirector",
+            "gg.essential=essential"
+    };
 
-    private RebooterConfig(
-            boolean overrideCompatibilityChecks,
-            String[] additions,
-            String[] removals,
-            String[] configuredMappings,
-            String[] configuredScanAllowlist
-    ) {
-        this.overrideCompatibilityChecks = overrideCompatibilityChecks;
-        this.additions = Collections.unmodifiableList(Arrays.asList(additions));
-        this.removals = Collections.unmodifiableList(Arrays.asList(removals));
-        this.modDiscoveryMappings = Collections.unmodifiableMap(parseModDiscoveryMappings(configuredMappings));
-        this.discoveryClassScanAllowlist = Collections.unmodifiableSet(
-                parsePackagePrefixes(configuredScanAllowlist, "Discovery class scan allowlist"));
+    @Config.LangKey(PREFIX + "network")
+    @Config.Comment("Network version override.")
+    public static final Network network = new Network();
+
+    @Config.LangKey(PREFIX + "client")
+    @Config.Comment("Client-only behavior.")
+    public static final Client client = new Client();
+
+    @Config.RequiresMcRestart
+    @Config.LangKey(PREFIX + "mixins")
+    @Config.Comment("Mixin config registration overrides.")
+    public static final Mixins mixins = new Mixins();
+
+    @Config.RequiresMcRestart
+    @Config.LangKey(PREFIX + "discovery")
+    @Config.Comment("Mod discovery fallbacks.")
+    public static final Discovery discovery = new Discovery();
+
+    @Config.LangKey(PREFIX + "cache")
+    @Config.Comment("JAR discovery cache.")
+    public static final Cache cache = new Cache();
+
+    @Config.LangKey(PREFIX + "diagnostics")
+    @Config.Comment("Diagnostic logging.")
+    public static final Diagnostics diagnostics = new Diagnostics();
+
+    public static final class Network {
+        @Config.LangKey(PREFIX + "network.versionOverride")
+        @Config.Comment({
+                "Uses the configured network version instead of compat version.",
+                "This changes the version exposed through the mod container, not local mod compat checks."
+        })
+        public boolean versionOverride = false;
+
+        @Config.LangKey(PREFIX + "network.version")
+        @Config.Comment("Version exposed through the mod container when the network version override is enabled.")
+        public String version = Reference.COMPAT_VERSION;
     }
 
-    public static boolean overrideCompatibilityChecks() {
-        return get().overrideCompatibilityChecks;
+    public static final class Client {
+        @Config.LangKey(PREFIX + "client.hideWarningToast")
+        @Config.Comment("Prevents the in-game toast that reports Mixin config compatibility warnings.")
+        public boolean hideWarningToast = true;
     }
 
-    public static Map<String, Set<String>> modDiscoveryPackageMappings() {
-        return get().modDiscoveryMappings;
+    public static final class Mixins {
+        @Config.LangKey(PREFIX + "mixins.ignoreCompatChecks")
+        @Config.Comment({
+                "Skips CompatHandling requirements when an annotated Mixin toggle is enabled.",
+                "Failed compatibility checks will neither disable the Mixin nor produce warnings."
+        })
+        public boolean ignoreCompatChecks = false;
+
+        @Config.LangKey(PREFIX + "mixins.forceLoadConfigs")
+        @Config.Comment({
+                "Mixin configuration resource names to register unconditionally in the early loading phase.",
+                "A name also listed in removals remains disabled."
+        })
+        public String[] forceLoadConfigs = new String[]{};
+
+        @Config.LangKey(PREFIX + "mixins.blockConfigs")
+        @Config.Comment({
+                "Mixin configuration resource names to reject from both early and late loading.",
+                "Removal wins over forced additions, annotations, and API registrations with the same name."
+        })
+        public String[] blockConfigs = new String[]{};
     }
 
-    public static Set<String> discoveryClassScanAllowlist() {
-        return get().discoveryClassScanAllowlist;
+    public static final class Discovery {
+        @Config.LangKey(PREFIX + "discovery.overridePackageMappings")
+        @Config.Comment({
+                "Uses the configured package mappings instead of the built-in defaults.",
+                "The configured list is ignored while this stays disabled."
+        })
+        public boolean overridePackageMappings = false;
+
+        @Config.LangKey(PREFIX + "discovery.packageMappings")
+        @Config.Comment({
+                "Fallback package prefixes for mod IDs that discovery does not report.",
+                "A mod ID is considered present when any scanned JAR entry starts with its mapped prefix.",
+                "Format: package.name=modid. Dotted and slash-separated package names are accepted.",
+                "Mod IDs preserve their configured case; API and compatibility queries ignore case.",
+                "Applies only when the package mappings override is on."
+        })
+        public String[] packageMappings = DEFAULT_PACKAGE_MAPPINGS.clone();
+
+        @Config.LangKey(PREFIX + "discovery.classScanAllowlist")
+        @Config.Comment({
+                "Package prefixes that remain eligible for @MixinConfig and @Mod scanning when normally filtered.",
+                "Use this only for discovery classes placed under bundled library packages.",
+                "Dotted and slash-separated package names are accepted."
+        })
+        public String[] classScanAllowlist = new String[]{};
     }
 
-    private static RebooterConfig get() {
-        if (instance == null && ForgeConfigAccess.registerAnnotated(FermiumBooterConfig.class, GameDirectory.resolve())) {
-            instance = new RebooterConfig(
-                    FermiumBooterConfig.overrideMixinCompatibilityChecks,
-                    FermiumBooterConfig.forcedEarlyMixinConfigAdditions,
-                    FermiumBooterConfig.forcedEarlyMixinConfigRemovals,
-                    FermiumBooterConfig.modDiscoveryPackageMappings,
-                    FermiumBooterConfig.discoveryClassScanAllowlist);
-            if (instance.overrideCompatibilityChecks) {
-                Reference.LOGGER.warn(
-                        "Mixin config compatibility checks are overridden; CompatHandling conditions are skipped");
-            }
-        }
-        return instance;
+    public static final class Cache {
+        @Config.LangKey(PREFIX + "cache.enabled")
+        @Config.Comment({
+                "Caches JAR discovery results between launches.",
+                "Disable to rescan every candidate JAR on every launch."
+        })
+        public boolean enabled = true;
+
+        @Config.LangKey(PREFIX + "cache.verifyMode")
+        @Config.Comment({
+                "Cache verification mode: always or auto.",
+                "always re-fingerprints every cached JAR; auto trusts unchanged file stamps."
+        })
+        public String verifyMode = "always";
+    }
+
+    public static final class Diagnostics {
+        @Config.LangKey(PREFIX + "diagnostics.logStats")
+        @Config.Comment("Logs JAR discovery timing statistics.")
+        public boolean logStats = false;
+    }
+
+    private RebooterConfig() {
+    }
+
+    public static String[] effectivePackageMappings() {
+        return discovery.overridePackageMappings
+                ? discovery.packageMappings
+                : DEFAULT_PACKAGE_MAPPINGS.clone();
     }
 
     @VisibleForTesting
     public static void resetForTesting() {
-        instance = null;
-        applied = false;
-    }
-
-    static void apply() {
-        if (applied) return;
-        RebooterConfig current = get();
-
-        for (String mixin : current.removals) {
-            MixinRegistry.reject(mixin);
-        }
-
-        MixinRegistry.enqueue(false, current.additions.toArray(new String[0]));
-        applied = true;
-    }
-
-    private static Map<String, Set<String>> parseModDiscoveryMappings(String[] configuredMappings) {
-        Map<String, Set<String>> mappings = new LinkedHashMap<>();
-        for (String mapping : configuredMappings) {
-            if (mapping == null) {
-                invalidMapping(null);
-                continue;
-            }
-            int separator = mapping.indexOf('=');
-            if (separator <= 0 || separator != mapping.lastIndexOf('=') || separator == mapping.length() - 1) {
-                invalidMapping(mapping);
-                continue;
-            }
-            String packagePrefix = normalizePackage(mapping.substring(0, separator).trim());
-            String modId = mapping.substring(separator + 1).trim();
-            if (packagePrefix == null || !modId.matches("[A-Za-z0-9_.-]+")) {
-                invalidMapping(mapping);
-                continue;
-            }
-            mappings.computeIfAbsent(packagePrefix, ignored -> new HashSet<>()).add(modId);
-        }
-        return mappings;
-    }
-
-    private static Set<String> parsePackagePrefixes(String[] configuredPrefixes, String description) {
-        Set<String> prefixes = new LinkedHashSet<>();
-        for (String configuredPrefix : configuredPrefixes) {
-            String prefix = configuredPrefix == null ? null : normalizePackage(configuredPrefix.trim());
-            if (prefix == null) {
-                Reference.LOGGER.warn("Ignoring invalid {} entry '{}'", description, configuredPrefix);
-            } else {
-                prefixes.add(prefix);
-            }
-        }
-        return prefixes;
-    }
-
-    private static String normalizePackage(String packageName) {
-        String normalized = packageName.replace('\\', '/').replace('.', '/');
-        while (normalized.startsWith("/")) {
-            normalized = normalized.substring(1);
-        }
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        if (normalized.isEmpty() || normalized.contains("//") || !normalized.matches("[A-Za-z0-9_/]+")) {
-            return null;
-        }
-        return normalized + "/";
-    }
-
-    private static void invalidMapping(String mapping) {
-        Reference.LOGGER.warn(
-                "Ignoring invalid mod discovery package mapping '{}'; expected package.name=modid",
-                mapping);
+        network.versionOverride = false;
+        network.version = Reference.COMPAT_VERSION;
+        client.hideWarningToast = true;
+        mixins.ignoreCompatChecks = false;
+        mixins.forceLoadConfigs = new String[]{};
+        mixins.blockConfigs = new String[]{};
+        discovery.overridePackageMappings = false;
+        discovery.packageMappings = DEFAULT_PACKAGE_MAPPINGS.clone();
+        discovery.classScanAllowlist = new String[]{};
+        cache.enabled = true;
+        cache.verifyMode = "always";
+        diagnostics.logStats = false;
     }
 }

@@ -1,7 +1,7 @@
 package fermiumbooter.rebooter.discovery;
 
 import fermiumbooter.rebooter.MixinRegistry;
-import fermiumbooter.rebooter.RebooterConfig;
+import fermiumbooter.rebooter.RebooterConfigState;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -18,7 +18,7 @@ final class ToggleRegistrar {
         boolean hasLate = StringUtils.isNotBlank(lateConfig);
         int warnings = 0;
         boolean disabled = false;
-        if (!compatibilityRules.isEmpty() && !RebooterConfig.overrideCompatibilityChecks()) {
+        if (!compatibilityRules.isEmpty() && !RebooterConfigState.overrideCompatibilityChecks()) {
             CompatEvaluator.Outcome outcome = CompatEvaluator.evaluate(
                     JarDiscovery.modIndex(),
                     compatibilityRules,

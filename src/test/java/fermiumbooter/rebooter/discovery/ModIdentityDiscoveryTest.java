@@ -1,7 +1,7 @@
 package fermiumbooter.rebooter.discovery;
 
 import fermiumbooter.ForgeTestEnvironment;
-import fermiumbooter.rebooter.RebooterConfig;
+import fermiumbooter.rebooter.RebooterConfigState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ModIdentityDiscoveryTest {
 
     private static final String FORGE_MOD = "Lnet/minecraftforge/fml/common/Mod;";
+    private static final String ENABLE_MAPPINGS = "    B:overridePackageMappings=true\n";
 
     @TempDir
     Path gameDirectory;
@@ -32,13 +33,13 @@ class ModIdentityDiscoveryTest {
         this.originalGameDirectory = System.getProperty("rebooter.gameDir");
         ForgeTestEnvironment.setGameDirectory(this.gameDirectory);
         JarDiscovery.resetForTesting();
-        RebooterConfig.resetForTesting();
+        RebooterConfigState.resetForTesting();
     }
 
     @AfterEach
     void restoreGameDirectory() {
         JarDiscovery.resetForTesting();
-        RebooterConfig.resetForTesting();
+        RebooterConfigState.resetForTesting();
         if (this.originalGameDirectory == null) {
             System.clearProperty("rebooter.gameDir");
         } else {
@@ -82,7 +83,8 @@ class ModIdentityDiscoveryTest {
 
     @Test
     void aPackageMappingClearsTheMetadataIdentityAndTheModAnnotationRefillsIt() throws Exception {
-        writeConfig("    S:\"Mod Discovery Package Mappings\" <\n"
+        writeConfig(ENABLE_MAPPINGS
+                + "    S:packageMappings <\n"
                 + "        merged.marker=merged\n"
                 + "    >\n");
         writeJar("merged.jar", output -> {
@@ -102,7 +104,8 @@ class ModIdentityDiscoveryTest {
 
     @Test
     void aMappedModWithoutAnnotationStaysPresentWithoutAnIdentity() throws Exception {
-        writeConfig("    S:\"Mod Discovery Package Mappings\" <\n"
+        writeConfig(ENABLE_MAPPINGS
+                + "    S:packageMappings <\n"
                 + "        mapped.marker=mapped_mod\n"
                 + "    >\n");
         writeJar("mapped.jar", output -> addEntry(output, "mapped/marker/marker.txt", ""));
@@ -115,7 +118,8 @@ class ModIdentityDiscoveryTest {
 
     @Test
     void aCacheHitRestoresTheSameIdentitiesAsAFullScan() throws Exception {
-        writeConfig("    S:\"Mod Discovery Package Mappings\" <\n"
+        writeConfig(ENABLE_MAPPINGS
+                + "    S:packageMappings <\n"
                 + "        merged.marker=merged\n"
                 + "    >\n");
         writeJar("cached-identities.jar", output -> {
@@ -137,12 +141,12 @@ class ModIdentityDiscoveryTest {
         assertEquals(scanned, restored);
     }
 
-    private void writeConfig(String generalBody) throws Exception {
+    private void writeConfig(String discoveryBody) throws Exception {
         Path configDirectory = Files.createDirectories(this.gameDirectory.resolve("config"));
         Files.write(
-                configDirectory.resolve("fermiumbooter.cfg"),
-                ("general {\n" + generalBody + "}\n").getBytes(StandardCharsets.UTF_8));
-        RebooterConfig.resetForTesting();
+                configDirectory.resolve("rebooter.cfg"),
+                ("discovery {\n" + discoveryBody + "}\n").getBytes(StandardCharsets.UTF_8));
+        RebooterConfigState.resetForTesting();
         JarDiscovery.resetForTesting();
     }
 

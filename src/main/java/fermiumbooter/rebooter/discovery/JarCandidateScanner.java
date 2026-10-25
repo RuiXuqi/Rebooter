@@ -2,10 +2,17 @@ package fermiumbooter.rebooter.discovery;
 
 import fermiumbooter.rebooter.Reference;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
@@ -13,6 +20,8 @@ import java.util.jar.Manifest;
 final class JarCandidateScanner {
     private static final int LAUNCHER_DISCOVERY_VERSION = 1;
     private static final String OPTIFINE_TWEAKER = "optifine.OptiFineForgeTweaker";
+    private static final int WORKER_COUNT = 4;
+    private static final AtomicInteger THREAD_NUMBER = new AtomicInteger();
 
     private final Map<String, Set<String>> packageMappings;
     private final Set<String> classScanAllowlist;
@@ -43,6 +52,107 @@ final class JarCandidateScanner {
                 + "manifest:TweakClass=" + OPTIFINE_TWEAKER + "=>optifine\n";
     }
 
+    static List<JarScanResult> parallelScan(
+            List<File> candidates,
+            Map<String, Set<String>> packageMappings,
+            Set<String> classScanAllowlist,
+            JarDiscoveryCache cache,
+            FingerprintCollector.Batch preparedFingerprints,
+            DiscoveryStatistics statistics) {
+        if (candidates.size() <= 1) {
+            List<JarScanResult> results = new ArrayList<>(candidates.size());
+            JarCandidateScanner scanner = new JarCandidateScanner(
+                    packageMappings,
+                    classScanAllowlist,
+                    cache,
+                    preparedFingerprints,
+                    new JarDiscoveryCache.ContentFingerprinter(),
+                    statistics);
+            for (File candidate : candidates) results.add(scanner.scan(candidate));
+            return results;
+        }
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(
+                WORKER_COUNT,
+                JarCandidateScanner::newWorkerThread);
+        try {
+            if (executor.prestartAllCoreThreads() != WORKER_COUNT) {
+                throw new IllegalStateException("Unable to start all candidate scan workers");
+            }
+        } catch (RuntimeException e) {
+            executor.shutdownNow();
+            Reference.LOGGER.warn("Unable to start parallel candidate scan workers; using one worker", e);
+            List<JarScanResult> results = new ArrayList<>(candidates.size());
+            JarCandidateScanner scanner = new JarCandidateScanner(
+                    packageMappings,
+                    classScanAllowlist,
+                    cache,
+                    preparedFingerprints,
+                    new JarDiscoveryCache.ContentFingerprinter(),
+                    statistics);
+            for (File candidate : candidates) results.add(scanner.scan(candidate));
+            return results;
+        }
+        try {
+            AtomicInteger nextCandidate = new AtomicInteger();
+            List<Future<WorkerResult>> workers = new ArrayList<>(WORKER_COUNT);
+            for (int workerIndex = 0; workerIndex < WORKER_COUNT; workerIndex++) {
+                DiscoveryStatistics workerStatistics = statistics.newWorkerStatistics();
+                workers.add(executor.submit(() -> scanCandidates(
+                        candidates,
+                        nextCandidate,
+                        new JarCandidateScanner(
+                                packageMappings,
+                                classScanAllowlist,
+                                cache,
+                                preparedFingerprints,
+                                new JarDiscoveryCache.ContentFingerprinter(),
+                                workerStatistics))));
+            }
+            List<JarScanResult> results = new ArrayList<>(Collections.nCopies(candidates.size(), null));
+            for (Future<WorkerResult> worker : workers) {
+                WorkerResult completed = worker.get();
+                statistics.merge(completed.statistics);
+                for (IndexedResult scanned : completed.scanned) {
+                    results.set(scanned.index, scanned.result);
+                }
+            }
+            return results;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while scanning discovery candidates", e);
+        } catch (ExecutionException e) {
+            throw propagate(e.getCause());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static WorkerResult scanCandidates(
+            List<File> candidates,
+            AtomicInteger nextCandidate,
+            JarCandidateScanner scanner) {
+        List<IndexedResult> scanned = new ArrayList<>();
+        int index;
+        while ((index = nextCandidate.getAndIncrement()) < candidates.size()) {
+            scanned.add(new IndexedResult(index, scanner.scan(candidates.get(index))));
+        }
+        return new WorkerResult(scanned, scanner.statistics);
+    }
+
+    private static Thread newWorkerThread(Runnable task) {
+        Thread thread = new Thread(
+                task,
+                "Rebooter Candidate Scan " + THREAD_NUMBER.incrementAndGet());
+        thread.setDaemon(true);
+        return thread;
+    }
+
+    private static RuntimeException propagate(Throwable cause) {
+        if (cause instanceof RuntimeException) return (RuntimeException) cause;
+        if (cause instanceof Error) throw (Error) cause;
+        return new IllegalStateException("Unexpected candidate scan worker failure", cause);
+    }
+
     JarScanResult scan(File file) {
         PreparedCandidate prepared = this.prepare(file);
         if (prepared == null) {
@@ -70,7 +180,7 @@ final class JarCandidateScanner {
             return new PreparedCandidate(
                     stamp,
                     fingerprint,
-                    this.cache.lookup(file, stamp, fingerprint));
+                    this.cache.lookup(file, stamp, fingerprint, preparedFingerprint.stampMatched()));
         }
         try {
             return new PreparedCandidate(JarDiscoveryCache.stamp(file), null, null);
@@ -94,7 +204,9 @@ final class JarCandidateScanner {
     }
 
     private JarScanResult scanFresh(File file, PreparedCandidate prepared) {
-        try (JarFile jar = new JarFile(file, false)) {
+        boolean fingerprintWhileScanning = this.cache.isEnabled() && prepared.fingerprint == null;
+        try (InputStream fileInput = openFileInput(file, fingerprintWhileScanning);
+             JarFile jar = new JarFile(file, false)) {
             MutableJarMetadata metadata = new MutableJarMetadata();
             boolean optiFine = this.readLauncherMetadata(jar, file, metadata);
             metadata.metadataIdentity = this.readMetadataIdentity(jar, file);
@@ -106,8 +218,8 @@ final class JarCandidateScanner {
                 return JarScanResult.ignored();
             }
             byte[] fingerprint = prepared.fingerprint;
-            if (this.cache.isEnabled() && fingerprint == null) {
-                fingerprint = this.contentFingerprint(file);
+            if (fingerprintWhileScanning) {
+                fingerprint = this.contentFingerprint(fileInput);
                 if (!finalStamp.equals(JarDiscoveryCache.stamp(file))) {
                     Reference.LOGGER.warn("Discovery candidate changed while fingerprinting; ignoring {}", file);
                     return JarScanResult.ignored();
@@ -168,15 +280,20 @@ final class JarCandidateScanner {
             File file,
             boolean optiFine,
             MutableJarMetadata metadata) {
+        if (optiFine) {
+            return;
+        }
         Enumeration<JarEntry> entries = jar.entries();
         while (entries.hasMoreElements()) {
             long entryStarted = this.statistics.start();
             JarEntry entry = entries.nextElement();
-            this.collectMappedModIds(entry.getName(), metadata.mappedModIds);
+            if (!this.packageMappings.isEmpty() && !entry.isDirectory()) {
+                this.collectMappedModIds(entry.getName(), metadata.mappedModIds);
+            }
             this.statistics.entryEnumeration(this.statistics.elapsed(entryStarted));
 
             long classStarted = this.statistics.start();
-            if (optiFine || !DiscoveryClassFilter.isScannable(entry, this.classScanAllowlist)) {
+            if (!DiscoveryClassFilter.isScannable(entry, this.classScanAllowlist)) {
                 this.statistics.classFilter(this.statistics.elapsed(classStarted));
                 continue;
             }
@@ -211,10 +328,16 @@ final class JarCandidateScanner {
         }
     }
 
-    private byte[] contentFingerprint(File file) throws IOException {
+    private static InputStream openFileInput(File file, boolean fingerprintWhileScanning) throws IOException {
+        return fingerprintWhileScanning
+                ? new BufferedInputStream(Files.newInputStream(file.toPath()))
+                : null;
+    }
+
+    private byte[] contentFingerprint(InputStream fileInput) throws IOException {
         long started = this.statistics.start();
         try {
-            return this.fingerprinter.fingerprint(file);
+            return this.fingerprinter.fingerprint(fileInput);
         } finally {
             this.statistics.fingerprint(
                     this.fingerprinter.bytesRead(),
@@ -258,6 +381,26 @@ final class JarCandidateScanner {
                     this.annotationIdentities.values(),
                     this.launcherModIds,
                     this.configResults);
+        }
+    }
+
+    private static final class WorkerResult {
+        private final List<IndexedResult> scanned;
+        private final DiscoveryStatistics statistics;
+
+        private WorkerResult(List<IndexedResult> scanned, DiscoveryStatistics statistics) {
+            this.scanned = scanned;
+            this.statistics = statistics;
+        }
+    }
+
+    private static final class IndexedResult {
+        private final int index;
+        private final JarScanResult result;
+
+        private IndexedResult(int index, JarScanResult result) {
+            this.index = index;
+            this.result = result;
         }
     }
 }

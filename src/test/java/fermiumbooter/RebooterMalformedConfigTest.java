@@ -1,6 +1,6 @@
 package fermiumbooter;
 
-import fermiumbooter.config.FermiumBooterConfig;
+import fermiumbooter.rebooter.RebooterConfig;
 import fermiumbooter.rebooter.RebooterCorePlugin;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -12,7 +12,7 @@ import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class FermiumBooterMalformedConfigTest {
+class RebooterMalformedConfigTest {
 
     @TempDir
     Path gameDirectory;
@@ -20,7 +20,7 @@ class FermiumBooterMalformedConfigTest {
     @Test
     void malformedConfigIsBackedUpAndReplacedWithForgeDefaults() throws Exception {
         Path configDirectory = Files.createDirectories(this.gameDirectory.resolve("config"));
-        Path configFile = configDirectory.resolve("fermiumbooter.cfg");
+        Path configFile = configDirectory.resolve("rebooter.cfg");
         Files.write(
                 configFile,
                 ("general {\n" + "}\n" + "}\n")
@@ -32,19 +32,19 @@ class FermiumBooterMalformedConfigTest {
                 Collections.singletonList("mixins.fermiumbooter.init.json"),
                 new RebooterCorePlugin().getMixinConfigs());
 
-        assertArrayEquals(new String[0], FermiumBooterConfig.forcedEarlyMixinConfigAdditions);
+        assertArrayEquals(new String[0], RebooterConfig.mixins.forceLoadConfigs);
         assertArrayEquals(
                 new String[]{
                         "git.jbredwards.jsonpaintings=jsonpaintings",
                         "net.jan.moddirector=moddirector",
                         "gg.essential=essential"
                 },
-                FermiumBooterConfig.modDiscoveryPackageMappings);
+                RebooterConfig.discovery.packageMappings);
         assertTrue(Files.readAllLines(configFile, StandardCharsets.UTF_8)
-                .contains("    B:\"Override Mixin Config Compatibility Checks\"=false"));
+                .contains("    B:ignoreCompatChecks=false"));
         try (java.util.stream.Stream<Path> files = Files.list(configDirectory)) {
             assertTrue(files.anyMatch(path -> path.getFileName().toString().matches(
-                    "fermiumbooter\\.cfg_\\d{8}_\\d{6}\\.errored")));
+                    "rebooter\\.cfg_\\d{8}_\\d{6}\\.errored")));
         }
     }
 }

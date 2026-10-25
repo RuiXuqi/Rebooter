@@ -10,7 +10,8 @@ final class JarScanResult {
             null,
             Collections.emptyList(),
             Collections.emptySet(),
-            Collections.emptyList());
+            Collections.emptyList(),
+            false);
 
     private final Status status;
     private final Set<String> mappedModIds;
@@ -19,6 +20,7 @@ final class JarScanResult {
     private final List<ModIdentity> annotationIdentities;
     private final Set<String> launcherModIds;
     private final List<DiscoveredConfig> configResults;
+    private final boolean exposesConfigClasses;
 
     private JarScanResult(
             Status status,
@@ -26,13 +28,15 @@ final class JarScanResult {
             @Nullable ModIdentity metadataIdentity,
             Collection<ModIdentity> annotationIdentities,
             Iterable<String> launcherModIds,
-            List<DiscoveredConfig> configResults) {
+            List<DiscoveredConfig> configResults,
+            boolean exposesConfigClasses) {
         this.status = status;
         this.mappedModIds = immutableSet(mappedModIds);
         this.metadataIdentity = metadataIdentity;
         this.annotationIdentities = Collections.unmodifiableList(new ArrayList<>(annotationIdentities));
         this.launcherModIds = immutableSet(launcherModIds);
         this.configResults = Collections.unmodifiableList(new ArrayList<>(configResults));
+        this.exposesConfigClasses = exposesConfigClasses;
     }
 
     static JarScanResult scanned(
@@ -47,7 +51,8 @@ final class JarScanResult {
                 metadataIdentity,
                 annotationIdentities,
                 launcherModIds,
-                configResults);
+                configResults,
+                !configResults.isEmpty());
     }
 
     static JarScanResult cached(JarDiscoveryCache.CachedData cached) {
@@ -57,7 +62,8 @@ final class JarScanResult {
                 cached.metadataIdentity(),
                 cached.annotationIdentities(),
                 cached.launcherModIds(),
-                cached.configResults());
+                cached.configResults(),
+                !cached.configResults().isEmpty());
     }
 
     static JarScanResult ignored() {
@@ -87,6 +93,10 @@ final class JarScanResult {
 
     List<DiscoveredConfig> configResults() {
         return this.configResults;
+    }
+
+    boolean exposesConfigClasses() {
+        return this.exposesConfigClasses;
     }
 
     private static Set<String> immutableSet(Iterable<String> values) {

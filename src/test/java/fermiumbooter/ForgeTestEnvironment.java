@@ -1,7 +1,7 @@
 package fermiumbooter;
 
-import fermiumbooter.config.FermiumBooterConfig;
 import fermiumbooter.rebooter.MixinRegistry;
+import fermiumbooter.rebooter.RebooterConfig;
 import fermiumbooter.rebooter.discovery.LegacyConfigRegistrar;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraftforge.fml.relauncher.FMLInjectionData;
@@ -36,7 +36,7 @@ public final class ForgeTestEnvironment {
     }
 
     private static void resetRebooterState() {
-        FermiumBooterConfig.resetForTesting();
+        RebooterConfig.resetForTesting();
         MixinRegistry.resetForTesting();
         LegacyConfigRegistrar.resetForTesting();
     }

@@ -2,13 +2,14 @@ package fermiumbooter.rebooter.discovery;
 
 import fermiumbooter.ForgeTestEnvironment;
 import fermiumbooter.annotations.MixinConfig;
+import fermiumbooter.rebooter.RebooterConfig;
+import fermiumbooter.rebooter.RebooterConfigState;
 import fermiumbooter.rebooter.Reference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -29,17 +30,21 @@ class JarDiscoveryCacheTest {
 
     @TempDir
     Path gameDirectory;
-    private String previousCacheProperty;
+    private boolean previousCacheEnabled;
+    private String previousVerifyMode;
 
     @BeforeEach
-    void clearCacheProperty() {
-        this.previousCacheProperty = System.getProperty("rebooter.discoveryCache");
-        System.clearProperty("rebooter.discoveryCache");
+    void defaultCacheConfig() {
+        this.previousCacheEnabled = RebooterConfig.cache.enabled;
+        this.previousVerifyMode = RebooterConfig.cache.verifyMode;
+        RebooterConfig.cache.enabled = true;
+        RebooterConfig.cache.verifyMode = "always";
     }
 
     @AfterEach
-    void restoreCacheProperty() {
-        restoreProperty("rebooter.discoveryCache", this.previousCacheProperty);
+    void restoreCacheConfig() {
+        RebooterConfig.cache.enabled = this.previousCacheEnabled;
+        RebooterConfig.cache.verifyMode = this.previousVerifyMode;
     }
 
     @Test
@@ -95,8 +100,8 @@ class JarDiscoveryCacheTest {
     @Test
     void disabledCacheSkipsContentFingerprintingDuringDiscovery() throws Exception {
         createFixtureJar();
-        System.setProperty("rebooter.discoveryCache", "false");
         prepareGameDirectory();
+        RebooterConfig.cache.enabled = false;
 
         JarDiscovery.registerConfigs();
 
@@ -442,7 +447,7 @@ class JarDiscoveryCacheTest {
         byte[] existingCache = new byte[]{1, 2, 3};
         Files.createDirectories(cacheFile().getParent());
         Files.write(cacheFile(), existingCache);
-        System.setProperty("rebooter.discoveryCache", "false");
+        RebooterConfig.cache.enabled = false;
         JarDiscoveryCache cache = JarDiscoveryCache.load(this.gameDirectory.toFile());
         JarDiscoveryCache.FileStamp stamp = JarDiscoveryCache.stamp(jar.toFile());
         assertEquals(null, cache.lookup(jar.toFile(), stamp, fingerprint));
@@ -461,15 +466,64 @@ class JarDiscoveryCacheTest {
     }
 
     @Test
-    void explicitTrueAndInvalidValuesKeepCacheEnabled() throws Exception {
-        assertCacheEnabled("true");
-        Files.delete(cacheFile());
-        assertCacheEnabled("invalid");
+    void enabledCacheConfigKeepsContentFingerprintingDuringDiscovery() throws Exception {
+        createFixtureJar();
+        writeCacheEnabled("true");
+        prepareGameDirectory();
+
+        JarDiscovery.registerConfigs();
+
+        assertTrue(JarDiscovery.getFingerprintReadCount() > 0);
+    }
+
+    @Test
+    void invalidCacheToggleFallsBackToEnabled() throws Exception {
+        createFixtureJar();
+        writeCacheEnabled("invalid");
+        prepareGameDirectory();
+
+        JarDiscovery.registerConfigs();
+
+        assertTrue(JarDiscovery.getFingerprintReadCount() > 0);
+        assertTrue(RebooterConfig.cache.enabled);
+    }
+
+    @Test
+    void autoVerifyHitsTheStampFastPathWithoutFingerprinting() throws Exception {
+        createFixtureJar();
+        prepareGameDirectory();
+        JarDiscovery.registerConfigs();
+        assertTrue(Files.isRegularFile(cacheFile()));
+
+        RebooterConfig.cache.verifyMode = "auto";
+        JarDiscovery.resetForTesting();
+        JarDiscovery.registerConfigs();
+
+        assertEquals(0, JarDiscovery.getFingerprintReadCount());
+        assertEquals(0, JarDiscovery.getPrefilterScanCount());
+        assertEquals(0, JarDiscovery.getEnumeratedEntryCount());
+    }
+
+    @Test
+    void autoVerifyFallsBackToFingerprintingWhenTheStampChanges() throws Exception {
+        Path jar = createFixtureJar();
+        prepareGameDirectory();
+        JarDiscovery.registerConfigs();
+
+        RebooterConfig.cache.verifyMode = "auto";
+        JarDiscovery.resetForTesting();
+        Files.setLastModifiedTime(jar, FileTime.fromMillis(Files.getLastModifiedTime(jar).toMillis() + 2_000));
+        JarDiscovery.registerConfigs();
+
+        assertEquals(1, JarDiscovery.getFingerprintReadCount());
+        assertEquals(0, JarDiscovery.getPrefilterScanCount());
+        assertEquals(0, JarDiscovery.getEnumeratedEntryCount());
     }
 
     private void prepareGameDirectory() throws Exception {
         System.setProperty("rebooter.gameDir", this.gameDirectory.toString());
         ForgeTestEnvironment.clearInjectedGameDirectory();
+        RebooterConfigState.resetForTesting();
         JarDiscovery.resetForTesting();
     }
 
@@ -616,26 +670,11 @@ class JarDiscoveryCacheTest {
         return this.gameDirectory.resolve("cache/rebooter/jar-discovery.bin");
     }
 
-    private void assertCacheEnabled(String propertyValue) throws Exception {
-        System.setProperty("rebooter.discoveryCache", propertyValue);
-        byte[] original = new byte[]{1, 2, 3};
-        Files.createDirectories(cacheFile().getParent());
-        Files.write(cacheFile(), original);
-        JarDiscoveryCache cache = JarDiscoveryCache.load(this.gameDirectory.toFile());
-        Path sourcePath = this.gameDirectory.resolve("source.jar");
-        if (!Files.exists(sourcePath)) Files.createFile(sourcePath);
-        File source = sourcePath.toFile();
-        cache.record(
-                source,
-                JarDiscoveryCache.stamp(source),
-                new byte[32],
-                Collections.emptyList(),
-                null,
-                Collections.emptySet(),
-                Collections.emptySet(),
-                Collections.emptySet());
-        cache.save();
-        assertNotEquals(original.length, Files.size(cacheFile()));
+    private void writeCacheEnabled(String value) throws Exception {
+        Path configDirectory = Files.createDirectories(this.gameDirectory.resolve("config"));
+        Files.write(
+                configDirectory.resolve("rebooter.cfg"),
+                ("cache {\n    B:enabled=" + value + "\n}\n").getBytes(StandardCharsets.UTF_8));
     }
 
     private static boolean contains(byte[] bytes, byte[] expected) {
@@ -653,14 +692,6 @@ class JarDiscoveryCacheTest {
             return offset;
         }
         return -1;
-    }
-
-    private static void restoreProperty(String name, String value) {
-        if (value == null) {
-            System.clearProperty(name);
-        } else {
-            System.setProperty(name, value);
-        }
     }
 
     @MixinConfig(name = "cache-fixture")

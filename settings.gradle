@@ -12,7 +12,7 @@ pluginManagement {
     }
     resolutionStrategy {
         eachPlugin {
-            if (requested.id.id == 'net.neoforged.moddev.mcpforge') {
+            if (requested.id.namespace == 'net.neoforged.moddev') {
                 useModule("io.github.ruixuqi:moddev-gradle:${requested.version}")
             }
         }

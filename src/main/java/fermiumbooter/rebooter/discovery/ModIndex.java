@@ -5,6 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -14,6 +15,7 @@ import java.util.Map;
  */
 final class ModIndex {
     private final Map<String, ModIdentity> identities = new LinkedHashMap<>();
+    private final Map<String, String> registeredKeysByLowerCase = new LinkedHashMap<>();
 
     /**
      * Registers an identity, discarding whatever was known for the mod id before.
@@ -21,6 +23,7 @@ final class ModIndex {
     void overwrite(ModIdentity identity) {
         String key = this.key(identity.modId());
         this.identities.put(key, ModIdentity.of(key, identity.name(), identity.version()));
+        this.registeredKeysByLowerCase.putIfAbsent(lowerCase(key), key);
     }
 
     /**
@@ -30,6 +33,7 @@ final class ModIndex {
         String key = this.key(modId);
         if (!this.identities.containsKey(key)) {
             this.identities.put(key, ModIdentity.presenceOnly(key));
+            this.registeredKeysByLowerCase.putIfAbsent(lowerCase(key), key);
         }
     }
 
@@ -42,6 +46,7 @@ final class ModIndex {
         ModIdentity known = this.identities.get(key);
         if (known == null) {
             this.identities.put(key, ModIdentity.of(key, identity.name(), identity.version()));
+            this.registeredKeysByLowerCase.putIfAbsent(lowerCase(key), key);
             return;
         }
         this.identities.put(key, ModIdentity.of(
@@ -65,17 +70,18 @@ final class ModIndex {
 
     void clear() {
         this.identities.clear();
+        this.registeredKeysByLowerCase.clear();
     }
 
     private String key(String modId) {
         if (this.identities.containsKey(modId)) {
             return modId;
         }
-        for (String registered : this.identities.keySet()) {
-            if (modId.equalsIgnoreCase(registered)) {
-                return registered;
-            }
-        }
-        return modId;
+        String registered = this.registeredKeysByLowerCase.get(lowerCase(modId));
+        return registered == null ? modId : registered;
+    }
+
+    private static String lowerCase(String modId) {
+        return modId.toLowerCase(Locale.ROOT);
     }
 }

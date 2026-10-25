@@ -2,8 +2,8 @@ package fermiumbooter.rebooter.discovery;
 
 import fermiumbooter.FermiumRegistryAPI;
 import fermiumbooter.ForgeTestEnvironment;
-import fermiumbooter.config.FermiumBooterConfig;
 import fermiumbooter.rebooter.RebooterConfig;
+import fermiumbooter.rebooter.RebooterConfigState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,17 +35,17 @@ class JarModIdDiscoveryTest {
     @BeforeEach
     void prepareGameDirectory() throws Exception {
         this.originalGameDirectory = System.getProperty("rebooter.gameDir");
-        this.originalDiscoveryScanAllowlist = FermiumBooterConfig.discoveryClassScanAllowlist.clone();
+        this.originalDiscoveryScanAllowlist = RebooterConfig.discovery.classScanAllowlist.clone();
         ForgeTestEnvironment.setGameDirectory(this.gameDirectory);
         JarDiscovery.resetForTesting();
-        RebooterConfig.resetForTesting();
+        RebooterConfigState.resetForTesting();
     }
 
     @AfterEach
     void restoreGameDirectory() {
         JarDiscovery.resetForTesting();
-        FermiumBooterConfig.discoveryClassScanAllowlist = this.originalDiscoveryScanAllowlist;
-        RebooterConfig.resetForTesting();
+        RebooterConfig.discovery.classScanAllowlist = this.originalDiscoveryScanAllowlist;
+        RebooterConfigState.resetForTesting();
         if (this.originalGameDirectory == null) {
             System.clearProperty("rebooter.gameDir");
         } else {
@@ -190,7 +190,7 @@ class JarModIdDiscoveryTest {
         Path defaultGame = Files.createDirectories(this.gameDirectory.resolve("default"));
         addFilteredModJar(defaultGame);
         ForgeTestEnvironment.setGameDirectory(defaultGame);
-        RebooterConfig.resetForTesting();
+        RebooterConfigState.resetForTesting();
         JarDiscovery.resetForTesting();
 
         assertFalse(FermiumRegistryAPI.isModPresent("allowlisted_mod"));
@@ -199,14 +199,14 @@ class JarModIdDiscoveryTest {
         addFilteredModJar(allowedGame);
         Path configDirectory = Files.createDirectories(allowedGame.resolve("config"));
         Files.write(
-                configDirectory.resolve("fermiumbooter.cfg"),
-                ("general {\n"
-                        + "    S:\"Discovery Class Scan Allowlist\" <\n"
+                configDirectory.resolve("rebooter.cfg"),
+                ("discovery {\n"
+                        + "    S:classScanAllowlist <\n"
                         + "        com.google.common\n"
                         + "    >\n"
                         + "}\n").getBytes(StandardCharsets.UTF_8));
         ForgeTestEnvironment.setGameDirectory(allowedGame);
-        RebooterConfig.resetForTesting();
+        RebooterConfigState.resetForTesting();
         JarDiscovery.resetForTesting();
 
         assertTrue(FermiumRegistryAPI.isModPresent("allowlisted_mod"));

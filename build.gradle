@@ -8,9 +8,9 @@ plugins {
     id 'java-library'
     id 'maven-publish'
     id 'org.jetbrains.gradle.plugin.idea-ext' version '1.4.1'
-    id 'net.neoforged.moddev.mcpforge' version '2.0.183-legacy'
+    id 'net.neoforged.moddev.mcpforge' version '2.0.185-legacy'
     id 'net.kyori.blossom' version '2.2.0'
-    id 'com.diffplug.spotless' version '8.10.0'
+    id 'com.diffplug.spotless' version '8.10.4' apply false
     id 'com.gradleup.shadow' version '9.6.1' apply false
 }
 
@@ -30,11 +30,15 @@ assertSubProperties 'use_access_transformer', 'access_transformer_locations'
 assertSubProperties 'use_mixins', 'mixin_booter_version', 'mixin_refmap'
 assertSubProperties 'is_coremod', 'coremod_includes_mod', 'coremod_plugin_class_name'
 
+setDefaultProperty 'use_modern_java_syntax', false, false
+setDefaultProperty 'use_jetbrains_annotations', false, false
 setDefaultProperty 'generate_sources_jar', true, false
 setDefaultProperty 'generate_javadocs_jar', true, false
 setDefaultProperty 'enable_shadow', false, false
 setDefaultProperty 'minecraft_username', true, 'Dev'
 setDefaultProperty 'extra_jvm_args', false, ''
+setDefaultProperty 'extra_tweak_classes', false, ''
+setDefaultProperty 'mixin_connector_class', false, ''
 
 version = propertyString('mod_version')
 group = propertyString('root_package')
@@ -58,6 +62,14 @@ java {
 }
 
 boolean useMixins = propertyBool('use_mixins')
+boolean legacyMixinBooter = false
+if (useMixins) {
+    String mixinBooterMajor = propertyString('mixin_booter_version').tokenize('.')[0]
+    if (!mixinBooterMajor.isInteger()) {
+        throw new GradleException("mixin_booter_version must be a concrete version (e.g. 10.7 / 11.18), dynamic versions are unsupported: ${mixinBooterMajor}")
+    }
+    legacyMixinBooter = mixinBooterMajor.toInteger() < 11
+}
 def mixinConfigs = propertyStringList('mixin_configs', ',')
 
 configurations {
@@ -77,21 +89,20 @@ if (propertyBool('enable_shadow')) {
     }
 }
 
-def mixinBooter = "zone.rong:mixinbooter:${propertyString('mixin_booter_version')}"
-
 mcpForge {
     if (propertyBool('use_access_transformer')) {
-        accessTransformers.from(propertyStringList('access_transformer_locations').collect {
+        accessTransformers.from(propertyStringList('access_transformer_locations', ',').collect {
             "src/main/resources/${it}"
         })
     }
 
     if (useMixins) {
-        mixinProvider mixinBooter
+        // Declares the jar supplying the Mixin runtime, so remapping keeps its bundled org.spongepowered.asm classes
+        mixinProvider "zone.rong:mixinbooter:${propertyString('mixin_booter_version')}"
     }
 
     enable {
-        forgeVersion = "1.12.2-14.23.5.2860"
+        forgeVersion = '1.12.2-14.23.5.2860'
         mcpMappings = 'de.oceanlabs.mcp:mcp_stable:39-1.12@zip'
         obfuscateJar = !propertyBool('enable_shadow')
     }
@@ -99,6 +110,9 @@ mcpForge {
     runs {
         configureEach {
             programArguments.addAll('--username', propertyString('minecraft_username'))
+            propertyStringList('extra_tweak_classes').each { tweakClass ->
+                programArguments.addAll('--tweakClass', tweakClass)
+            }
             def extraArgs = propertyString('extra_jvm_args')
             if (extraArgs != null && !extraArgs.trim().isEmpty()) {
                 extraArgs.trim().split(/\s+/).each { jvmArgument(it) }
@@ -125,10 +139,27 @@ mcpForge {
     }
 }
 
+def mixinRefmap = null
 if (useMixins) {
     mixin {
         mixinConfigs.each { config(it) }
-        add propertyString('mixin_refmap')
+        String refmap = propertyString('mixin_refmap')
+        if (!refmap.isBlank()) {
+            mixinRefmap = add(refmap)
+        }
+        if (!legacyMixinBooter) {
+            writeConfigsToJarManifest = true
+        }
+    }
+}
+
+repositories {
+    maven {
+        name = 'CleanroomMC'
+        url = 'https://maven.cleanroommc.com'
+        content {
+            includeGroup 'zone.rong'
+        }
     }
 }
 
@@ -136,15 +167,16 @@ if (useMixins) {
 // Check gradle/scripts/dependencies.gradle for that.
 dependencies {
     if (propertyBool('use_modern_java_syntax')) {
-        annotationProcessor 'com.github.bsideup.jabel:jabel-javac-plugin:1.0.0'
         // Workaround for https://github.com/bsideup/jabel/issues/174
         annotationProcessor 'net.java.dev.jna:jna-platform:5.19.1'
-        compileOnly ('com.github.bsideup.jabel:jabel-javac-plugin:1.0.0') {
+        def jabel = 'com.github.bsideup.jabel:jabel-javac-plugin:1.0.0'
+        annotationProcessor jabel
+        compileOnly (jabel) {
             transitive = false
         }
         // Include for tests
-        testAnnotationProcessor 'com.github.bsideup.jabel:jabel-javac-plugin:1.0.0'
-        testCompileOnly('com.github.bsideup.jabel:jabel-javac-plugin:1.0.0') {
+        testAnnotationProcessor jabel
+        testCompileOnly(jabel) {
             transitive = false // We only care about the 1 annotation class
         }
     }
@@ -152,10 +184,25 @@ dependencies {
         compileOnly 'org.jetbrains:annotations:26.1.0'
     }
     if (useMixins) {
-        modImplementation (mixinBooter) {
-            transitive = false
+        def mixin = "zone.rong:mixinbooter:${propertyString('mixin_booter_version')}"
+        if (legacyMixinBooter) {
+            // MixinBooter < 11 carries the unshaded Mixin AP, whose own runtime deps need declaring
+            modApi (mixin) {
+                transitive = false
+            }
+            annotationProcessor (mixin) {
+                transitive = false
+            }
+            annotationProcessor 'org.ow2.asm:asm-debug-all:5.2'
+            annotationProcessor 'com.google.guava:guava:32.1.2-jre'
+            annotationProcessor 'com.google.code.gson:gson:2.8.9'
+        } else {
+            // MixinBooter 11+ is self-contained as a mod; its AP resolves its helpers from the POM
+            modImplementation (mixin) {
+                transitive = false
+            }
+            annotationProcessor mixin
         }
-        annotationProcessor mixinBooter
     }
     if (propertyBool('enable_junit_testing')) {
         testImplementation 'org.junit.jupiter:junit-jupiter:5.14.4'
@@ -197,6 +244,26 @@ sourceSets {
     }
 }
 
+def modManifestAttributes = {
+    def attribute_map = [:]
+    if (useMixins && !legacyMixinBooter) {
+        def mixinConnectorClass = propertyString('mixin_connector_class')
+        if (!mixinConnectorClass.isEmpty()) {
+            attribute_map['MixinConnector'] = mixinConnectorClass
+        }
+    }
+    if (propertyBool('is_coremod')) {
+        attribute_map['FMLCorePlugin'] = propertyString('coremod_plugin_class_name')
+        if (propertyBool('coremod_includes_mod')) {
+            attribute_map['FMLCorePluginContainsFMLMod'] = true
+        }
+    }
+    if (propertyBool('use_access_transformer')) {
+        attribute_map['FMLAT'] = propertyStringList('access_transformer_locations', ',').join(' ')
+    }
+    return attribute_map
+}
+
 jar {
     if (propertyBool('enable_shadow')) {
         archiveClassifier = 'plain'
@@ -207,26 +274,7 @@ jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     doFirst {
         manifest {
-            def attribute_map = [:]
-            if (useMixins) {
-                if (!mixinConfigs.isEmpty()) {
-                    attribute_map['MixinConfigs'] = mixinConfigs.join(',')
-                }
-                def mixinConnectorClass = propertyString('mixin_connector_class')
-                if (!mixinConnectorClass.isEmpty()) {
-                    attribute_map['MixinConnector'] = mixinConnectorClass
-                }
-            }
-            if (propertyBool('is_coremod')) {
-                attribute_map['FMLCorePlugin'] = propertyString('coremod_plugin_class_name')
-                if (propertyBool('coremod_includes_mod')) {
-                    attribute_map['FMLCorePluginContainsFMLMod'] = true
-                }
-            }
-            if (propertyBool('use_access_transformer')) {
-                attribute_map['FMLAT'] = propertyString('access_transformer_locations')
-            }
-            attributes(attribute_map)
+            attributes(modManifestAttributes())
         }
     }
 }
@@ -238,8 +286,19 @@ if (propertyBool('enable_shadow')) {
         destinationDirectory = layout.buildDirectory.dir('libs')
         //noinspection GroovyAssignabilityCheck,GroovyAccessibility
         configurations = [ project.configurations.shaded ]
+        // ShadowJar has its own `configurations` (the shaded ones), so the project's have to be qualified
+        if (mixinRefmap != null) {
+            // The shaded jar replaces `jar`, and reobfuscation remaps this jar, so the refmap has to be here
+            from(mixinRefmap)
+        }
+        doFirst {
+            manifest {
+                attributes(modManifestAttributes())
+            }
+        }
     }
-    tasks.named('jar').configure {
+    // Unshaded dev jar get 'plain' as name
+    tasks.named("jar").configure {
         finalizedBy shadowJar
     }
 }
@@ -268,9 +327,6 @@ idea {
                 "3. Build Mod"(Gradle) {
                     taskNames = ["build"]
                 }
-                "4. Apply Spotless"(Gradle) {
-                    taskNames = ["spotlessApply"]
-                }
             }
             compiler.javac {
                 afterEvaluate {
@@ -281,6 +337,12 @@ idea {
                 }
             }
         }
+    }
+}
+
+plugins.withId('com.diffplug.spotless') {
+    project.idea.project.settings.runConfigurations.create('4. Apply Spotless', Gradle) {
+        taskNames = ['spotlessApply']
     }
 }
 
@@ -302,7 +364,7 @@ test {
 
 tasks.register('generateMixinJson') {
     group = 'build setup'
-    description = 'Generates a Mixin configuration JSON file if missing.'
+    description = 'Generates missing Mixin configuration JSON files.'
     onlyIf {
         useMixins
     }

@@ -1,6 +1,5 @@
 package fermiumbooter.rebooter;
 
-import fermiumbooter.config.FermiumBooterConfig;
 import fermiumbooter.rebooter.discovery.JarDiscovery;
 import fermiumbooter.rebooter.discovery.LegacyConfigRegistrar;
 import net.minecraft.client.Minecraft;
@@ -32,7 +31,7 @@ public final class RebooterClientEventHandler {
         if (!showed && event.getGui() instanceof GuiMainMenu) {
             showed = true;
             int warningCount = LegacyConfigRegistrar.getWarningCount() + JarDiscovery.getWarningCount();
-            if (FermiumBooterConfig.suppressMixinCompatibilityWarningsRender || warningCount == 0) {
+            if (RebooterConfig.client.hideWarningToast || warningCount == 0) {
                 return;
             }
             Minecraft.getMinecraft().getToastGui().add(new SystemToast(SystemToast.Type.NARRATOR_TOGGLE,

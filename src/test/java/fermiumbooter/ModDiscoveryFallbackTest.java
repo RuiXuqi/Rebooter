@@ -1,7 +1,7 @@
 package fermiumbooter;
 
 import fermiumbooter.annotations.MixinConfig;
-import fermiumbooter.rebooter.RebooterConfig;
+import fermiumbooter.rebooter.RebooterConfigState;
 import fermiumbooter.rebooter.RebooterCorePlugin;
 import fermiumbooter.rebooter.discovery.JarDiscovery;
 import org.junit.jupiter.api.Test;
@@ -29,9 +29,10 @@ class ModDiscoveryFallbackTest {
     void configuredPackageMappingsAreDetectedBeforeMixinCompatibilityChecks() throws Exception {
         Path configDirectory = Files.createDirectories(this.gameDirectory.resolve("config"));
         Files.write(
-                configDirectory.resolve("fermiumbooter.cfg"),
-                ("general {\n"
-                        + "    S:\"Mod Discovery Package Mappings\" <\n"
+                configDirectory.resolve("rebooter.cfg"),
+                ("discovery {\n"
+                        + "    B:overridePackageMappings=true\n"
+                        + "    S:packageMappings <\n"
                         + "        git.jbredwards.jsonpaintings=jsonpaintings\n"
                         + "        net/jan/moddirector=moddirector\n"
                         + "        custom.marker=CustomMarker\n"
@@ -47,7 +48,7 @@ class ModDiscoveryFallbackTest {
         ForgeTestEnvironment.clearInjectedGameDirectory();
 
         List<String> earlyMixins = new RebooterCorePlugin().getMixinConfigs();
-        Map<String, Set<String>> mappings = RebooterConfig.modDiscoveryPackageMappings();
+        Map<String, Set<String>> mappings = RebooterConfigState.modDiscoveryPackageMappings();
 
         assertTrue(earlyMixins.contains("mixins.fallback-detected.json"));
         assertTrue(earlyMixins.contains("mixins.fallback-wrong-case.json"));
@@ -63,6 +64,32 @@ class ModDiscoveryFallbackTest {
         JarDiscovery.clear();
 
         assertTrue(FermiumRegistryAPI.isModPresent("embedded_guava"));
+    }
+
+    @Test
+    void configuredMappingsAreIgnoredWhileTheToggleStaysDisabled() throws Exception {
+        Path configDirectory = Files.createDirectories(this.gameDirectory.resolve("config"));
+        Files.write(
+                configDirectory.resolve("rebooter.cfg"),
+                ("discovery {\n"
+                        + "    S:packageMappings <\n"
+                        + "        custom.marker=CustomMarker\n"
+                        + "    >\n"
+                        + "}\n")
+                        .getBytes(StandardCharsets.UTF_8));
+        Path modsDirectory = Files.createDirectories(this.gameDirectory.resolve("mods"));
+        addMarkerJar(modsDirectory.resolve("markers.jar"));
+        System.setProperty("rebooter.gameDir", this.gameDirectory.toString());
+        ForgeTestEnvironment.clearInjectedGameDirectory();
+
+        Map<String, Set<String>> mappings = RebooterConfigState.modDiscoveryPackageMappings();
+
+        assertEquals(
+                new java.util.HashSet<>(java.util.Arrays.asList(
+                        "git/jbredwards/jsonpaintings/", "net/jan/moddirector/", "gg/essential/")),
+                mappings.keySet());
+        assertFalse(FermiumRegistryAPI.isModPresent("custommarker"));
+        assertTrue(FermiumRegistryAPI.isModPresent("jsonpaintings"));
     }
 
     private static void addConfigJar(Path path) throws Exception {

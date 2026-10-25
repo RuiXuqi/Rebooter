@@ -22,13 +22,13 @@ class ForcedConfigHandlerTest {
     void forcedConfigLoadsBeforeFmlInjectionDataAndRemovalWins() throws Exception {
         Path configDirectory = Files.createDirectories(this.gameDirectory.resolve("config"));
         Files.write(
-                configDirectory.resolve("fermiumbooter.cfg"),
-                ("general {\n"
-                        + "    S:\"Forced Early Mixin Config Additions\" <\n"
+                configDirectory.resolve("rebooter.cfg"),
+                ("mixins {\n"
+                        + "    S:forceLoadConfigs <\n"
                         + "        mixins.added.json\n"
                         + "        mixins.collision.json\n"
                         + "    >\n"
-                        + "    S:\"Forced Early Mixin Config Removals\" <\n"
+                        + "    S:blockConfigs <\n"
                         + "        mixins.collision.json\n"
                         + "    >\n"
                         + "}\n")

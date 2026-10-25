@@ -1,0 +1,143 @@
+package fermiumbooter.rebooter;
+
+import com.google.common.annotations.VisibleForTesting;
+import fermiumbooter.rebooter.util.ForgeConfigAccess;
+import fermiumbooter.rebooter.util.GameDirectory;
+
+import java.util.*;
+
+public final class RebooterConfigState {
+    private static RebooterConfigState instance;
+    private static boolean applied;
+    private final boolean overrideCompatibilityChecks;
+    private final List<String> additions;
+    private final List<String> removals;
+    // package - modIds
+    private final Map<String, Set<String>> modDiscoveryMappings;
+    private final Set<String> discoveryClassScanAllowlist;
+    private final boolean discoveryStatsEnabled;
+
+    private RebooterConfigState(
+            boolean overrideCompatibilityChecks,
+            String[] additions,
+            String[] removals,
+            String[] configuredMappings,
+            String[] configuredScanAllowlist,
+            boolean discoveryStatsEnabled
+    ) {
+        this.overrideCompatibilityChecks = overrideCompatibilityChecks;
+        this.additions = Collections.unmodifiableList(Arrays.asList(additions));
+        this.removals = Collections.unmodifiableList(Arrays.asList(removals));
+        this.modDiscoveryMappings = Collections.unmodifiableMap(parseModDiscoveryMappings(configuredMappings));
+        this.discoveryClassScanAllowlist = Collections.unmodifiableSet(
+                parsePackagePrefixes(configuredScanAllowlist, "Discovery class scan allowlist"));
+        this.discoveryStatsEnabled = discoveryStatsEnabled;
+    }
+
+    public static boolean overrideCompatibilityChecks() {
+        return get().overrideCompatibilityChecks;
+    }
+
+    public static Map<String, Set<String>> modDiscoveryPackageMappings() {
+        return get().modDiscoveryMappings;
+    }
+
+    public static Set<String> discoveryClassScanAllowlist() {
+        return get().discoveryClassScanAllowlist;
+    }
+
+    public static boolean discoveryStatsEnabled() {
+        return get().discoveryStatsEnabled;
+    }
+
+    private static RebooterConfigState get() {
+        if (instance == null && ForgeConfigAccess.registerAnnotated(RebooterConfig.class, GameDirectory.resolve())) {
+            instance = new RebooterConfigState(
+                    RebooterConfig.mixins.ignoreCompatChecks,
+                    RebooterConfig.mixins.forceLoadConfigs,
+                    RebooterConfig.mixins.blockConfigs,
+                    RebooterConfig.effectivePackageMappings(),
+                    RebooterConfig.discovery.classScanAllowlist,
+                    RebooterConfig.diagnostics.logStats);
+            if (instance.overrideCompatibilityChecks) {
+                Reference.LOGGER.warn(
+                        "Mixin config compatibility checks are overridden; CompatHandling conditions are skipped");
+            }
+        }
+        return instance;
+    }
+
+    @VisibleForTesting
+    public static void resetForTesting() {
+        instance = null;
+        applied = false;
+    }
+
+    static void apply() {
+        if (applied) return;
+        RebooterConfigState current = get();
+
+        for (String mixin : current.removals) {
+            MixinRegistry.reject(mixin);
+        }
+
+        MixinRegistry.enqueue(false, current.additions.toArray(new String[0]));
+        applied = true;
+    }
+
+    private static Map<String, Set<String>> parseModDiscoveryMappings(String[] configuredMappings) {
+        Map<String, Set<String>> mappings = new LinkedHashMap<>();
+        for (String mapping : configuredMappings) {
+            if (mapping == null) {
+                invalidMapping(null);
+                continue;
+            }
+            int separator = mapping.indexOf('=');
+            if (separator <= 0 || separator != mapping.lastIndexOf('=') || separator == mapping.length() - 1) {
+                invalidMapping(mapping);
+                continue;
+            }
+            String packagePrefix = normalizePackage(mapping.substring(0, separator).trim());
+            String modId = mapping.substring(separator + 1).trim();
+            if (packagePrefix == null || !modId.matches("[A-Za-z0-9_.-]+")) {
+                invalidMapping(mapping);
+                continue;
+            }
+            mappings.computeIfAbsent(packagePrefix, ignored -> new HashSet<>()).add(modId);
+        }
+        return mappings;
+    }
+
+    private static Set<String> parsePackagePrefixes(String[] configuredPrefixes, String description) {
+        Set<String> prefixes = new LinkedHashSet<>();
+        for (String configuredPrefix : configuredPrefixes) {
+            String prefix = configuredPrefix == null ? null : normalizePackage(configuredPrefix.trim());
+            if (prefix == null) {
+                Reference.LOGGER.warn("Ignoring invalid {} entry '{}'", description, configuredPrefix);
+            } else {
+                prefixes.add(prefix);
+            }
+        }
+        return prefixes;
+    }
+
+    private static String normalizePackage(String packageName) {
+        String normalized = packageName.replace('\\', '/').replace('.', '/');
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        if (normalized.isEmpty() || normalized.contains("//") || !normalized.matches("[A-Za-z0-9_/]+")) {
+            return null;
+        }
+        return normalized + "/";
+    }
+
+    private static void invalidMapping(String mapping) {
+        Reference.LOGGER.warn(
+                "Ignoring invalid mod discovery package mapping '{}'; expected package.name=modid",
+                mapping);
+    }
+}

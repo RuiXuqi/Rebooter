@@ -3,6 +3,9 @@
 
 // If you wish to use the default helper methods, uncomment the line below
 // apply from: 'gradle/scripts/helpers.gradle'
+
+apply plugin: 'com.diffplug.spotless'
+
 spotless {
     enforceCheck false
 
@@ -15,11 +18,6 @@ spotless {
         endWithNewline()
         removeUnusedImports()
     }
-}
-
-// Configure it here to avoid MixinConfig MF, which is used in MB 11 but should not exist in 10
-mixin {
-    config 'mixins.fermiumbooter.init.json'
 }
 
 mcpForge.addModdingDependenciesTo(sourceSets.test)

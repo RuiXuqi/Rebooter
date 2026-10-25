@@ -18,9 +18,9 @@ requires FermiumBooter.
 
 ## Compatibility
 
-The current compatibility target is FermiumBooter **1.5.1**.
+The current compatibility target is FermiumBooter **1.5.2**.
 
-Rebooter aims to provide API and ABI compatibility through 1.5.1, including APIs introduced in 1.2.0 and removed in
+Rebooter aims to provide API and ABI compatibility through 1.5.2, including APIs introduced in 1.2.0 and removed in
 1.3.0.
 
 The table lists the supported APIs introduced by each FermiumBooter release; releases with no API additions are omitted.
@@ -33,8 +33,8 @@ The table lists the supported APIs introduced by each FermiumBooter release; rel
 |  1.3.2  | `MixinConfig.CompatHandling.warnIngame()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 |  1.5.0  | `MixinConfig.CompatHandling.modName()`<br>`MixinConfig.CompatHandling.targetVersionRange()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-Rebooter also supports a configurable network version. To connect to existing FermiumBooter servers, configure
-`Enable Custom Network Version` and `Custom Network Version` in Rebooter's `fermiumbooter.cfg`. Although FermiumBooter
+Rebooter also supports a configurable network version. To connect to existing FermiumBooter servers, set
+`versionOverride` and `version` in the `network` category of Rebooter's `rebooter.cfg`. Although FermiumBooter
 contains no network components, Forge applies its default `@Mod` version check during connection.
 [FermiumBooter.java#L9](https://github.com/FermiumModding/FermiumBooter/blob/v1.4.1/src/main/java/fermiumbooter/FermiumBooter.java#L9)
 

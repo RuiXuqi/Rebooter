@@ -2,8 +2,9 @@ package fermiumbooter.rebooter.discovery;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-import fermiumbooter.rebooter.RebooterConfig;
+import fermiumbooter.rebooter.RebooterConfigState;
 import fermiumbooter.rebooter.Reference;
+import fermiumbooter.rebooter.util.ClasspathExposure;
 import fermiumbooter.rebooter.util.ForgeConfigAccess;
 import fermiumbooter.rebooter.util.GameDirectory;
 import org.apache.commons.lang3.StringUtils;
@@ -18,7 +19,7 @@ public final class JarDiscovery {
     private static boolean indexed;
     private static boolean configsRegistered;
     private static int warningCount;
-    private static DiscoveryStatistics statistics = new DiscoveryStatistics();
+    private static DiscoveryStatistics statistics = new DiscoveryStatistics(false);
 
     private JarDiscovery() {
     }
@@ -73,9 +74,9 @@ public final class JarDiscovery {
             return;
         }
         Stopwatch stopwatch = Stopwatch.createStarted();
-        statistics = new DiscoveryStatistics();
-        Map<String, Set<String>> packageMappings = RebooterConfig.modDiscoveryPackageMappings();
-        Set<String> classScanAllowlist = RebooterConfig.discoveryClassScanAllowlist();
+        statistics = new DiscoveryStatistics(RebooterConfigState.discoveryStatsEnabled());
+        Map<String, Set<String>> packageMappings = RebooterConfigState.modDiscoveryPackageMappings();
+        Set<String> classScanAllowlist = RebooterConfigState.discoveryClassScanAllowlist();
 
         long cacheLoadStarted = statistics.start();
         JarDiscoveryCache cache = JarDiscoveryCache.load(
@@ -87,30 +88,32 @@ public final class JarDiscovery {
         Set<File> candidates = JarCollector.collect(GameDirectory.resolve());
         statistics.candidateCollection(statistics.elapsed(candidateStarted), candidates.size());
 
-        JarDiscoveryCache.ContentFingerprinter fingerprinter = new JarDiscoveryCache.ContentFingerprinter();
         FingerprintCollector.Batch preparedFingerprints = FingerprintCollector.collect(
                 candidates,
                 cache,
-                fingerprinter);
+                new JarDiscoveryCache.ContentFingerprinter());
         statistics.fingerprintBatch(
                 preparedFingerprints.fingerprintCount(),
                 preparedFingerprints.fingerprintBytes(),
                 preparedFingerprints.elapsedNanos());
 
-        JarCandidateScanner scanner = new JarCandidateScanner(
+        List<File> candidateList = new ArrayList<>(candidates);
+        JarDiscoveryCache scanCache = candidateList.size() > 1 ? synchronizedCache(cache) : cache;
+        List<JarScanResult> scanResults = JarCandidateScanner.parallelScan(
+                candidateList,
                 packageMappings,
                 classScanAllowlist,
-                cache,
+                scanCache,
                 preparedFingerprints,
-                fingerprinter,
                 statistics);
         List<ModIdentity> metadataIdentities = new ArrayList<>();
         Set<String> mappedModIds = new LinkedHashSet<>();
         Set<String> launcherModIds = new LinkedHashSet<>();
         List<ModIdentity> annotationIdentities = new ArrayList<>();
         List<DiscoveredConfig> configResults = new ArrayList<>();
-        for (File candidate : candidates) {
-            JarScanResult result = scanner.scan(candidate);
+        List<File> configExposingJars = new ArrayList<>();
+        for (int index = 0; index < candidateList.size(); index++) {
+            JarScanResult result = scanResults.get(index);
             if (result.isIgnored()) {
                 continue;
             }
@@ -121,6 +124,9 @@ public final class JarDiscovery {
             launcherModIds.addAll(result.launcherModIds());
             annotationIdentities.addAll(result.annotationIdentities());
             configResults.addAll(result.configResults());
+            if (result.exposesConfigClasses()) {
+                configExposingJars.add(candidateList.get(index));
+            }
         }
 
         long cacheSaveStarted = statistics.start();
@@ -128,9 +134,18 @@ public final class JarDiscovery {
         statistics.cacheSave(statistics.elapsed(cacheSaveStarted));
         registerIdentities(metadataIdentities, mappedModIds, launcherModIds, annotationIdentities);
         CONFIG_RESULTS.addAll(configResults);
+        ClasspathExposure.expose(configExposingJars);
         indexed = true;
         Reference.LOGGER.info("ASM discovery completed in {} ms", stopwatch.elapsed(TimeUnit.MILLISECONDS));
         statistics.logIndex();
+    }
+
+    /**
+     * Guards the cache write path (and the read of the shared underlying cache) while candidate
+     * scanners run on worker threads; the loaded snapshot itself is read-only.
+     */
+    private static JarDiscoveryCache synchronizedCache(JarDiscoveryCache cache) {
+        return cache.synchronizedView();
     }
 
     /**
@@ -190,7 +205,7 @@ public final class JarDiscovery {
         indexed = false;
         configsRegistered = false;
         warningCount = 0;
-        statistics = new DiscoveryStatistics();
+        statistics = new DiscoveryStatistics(false);
         MOD_INDEX.clear();
         CONFIG_RESULTS.clear();
         ForgeConfigAccess.clearCompatibilityCache();

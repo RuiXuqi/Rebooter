@@ -6,7 +6,7 @@ import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
 @Mod(
         modid = Reference.MOD_ID,
         name = Reference.MOD_NAME,
-        version = Rebooter.COMPAT_VERSION,
+        version = Reference.COMPAT_VERSION,
         dependencies = "required-after:mixinbooter@[8.0,);",
         acceptableRemoteVersions = "*",
         customProperties = {
@@ -15,8 +15,6 @@ import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
         }
 )
 public final class Rebooter {
-    public static final String COMPAT_VERSION = "1.5.1";
-
     @Mod.EventHandler
     public void preInit(FMLPostInitializationEvent event) {
         NetworkVersion.applyConfigured();

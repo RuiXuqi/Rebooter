@@ -8,7 +8,7 @@ final class ClassMetadataScanner {
     private final DiscoveryStatistics statistics;
 
     ClassMetadataScanner() {
-        this(new DiscoveryStatistics());
+        this(new DiscoveryStatistics(false));
     }
 
     ClassMetadataScanner(DiscoveryStatistics statistics) {

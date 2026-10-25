@@ -1,6 +1,5 @@
 package fermiumbooter.rebooter;
 
-import fermiumbooter.config.FermiumBooterConfig;
 import net.minecraftforge.fml.common.FMLModContainer;
 import net.minecraftforge.fml.common.Loader;
 import net.minecraftforge.fml.common.ModContainer;
@@ -15,12 +14,12 @@ final class NetworkVersion {
     }
 
     static void applyConfigured() {
-        if (!FermiumBooterConfig.enableCustomNetworkVersion) {
+        if (!RebooterConfig.network.versionOverride) {
             return;
         }
         ModContainer container = Loader.instance().getIndexedModList().get(Reference.MOD_ID);
         if (container instanceof FMLModContainer) {
-            apply((FMLModContainer) container, FermiumBooterConfig.customNetworkVersion);
+            apply((FMLModContainer) container, RebooterConfig.network.version);
         } else {
             Reference.LOGGER.error("Missing FMLModContainer for network version");
         }

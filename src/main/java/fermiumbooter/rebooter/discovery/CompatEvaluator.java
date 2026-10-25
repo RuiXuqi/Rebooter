@@ -1,11 +1,11 @@
 package fermiumbooter.rebooter.discovery;
 
 import fermiumbooter.rebooter.Reference;
-import net.minecraftforge.fml.common.versioning.ArtifactVersion;
-import net.minecraftforge.fml.common.versioning.DefaultArtifactVersion;
-import net.minecraftforge.fml.common.versioning.InvalidVersionSpecificationException;
-import net.minecraftforge.fml.common.versioning.VersionRange;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.maven.artifact.versioning.ArtifactVersion;
+import org.apache.maven.artifact.versioning.DefaultArtifactVersion;
+import org.apache.maven.artifact.versioning.InvalidVersionSpecificationException;
+import org.apache.maven.artifact.versioning.VersionRange;
 
 import javax.annotation.Nullable;
 import java.util.List;
@@ -75,7 +75,7 @@ final class CompatEvaluator {
             return false;
         }
         // An exact version is a range of one, which VersionRange does not treat as a restriction.
-        if (range.equals(parsed.getVersionString())) {
+        if (range.equals(parsed.toString())) {
             return true;
         }
         try {
