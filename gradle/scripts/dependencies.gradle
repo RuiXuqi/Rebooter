@@ -44,7 +44,7 @@ repositories {
 }
 
 dependencies {
-    def mixinSquared = 'com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7-beta.3'
+    def mixinSquared = 'com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.7'
     shaded (mixinSquared) {
         transitive = false
     }
@@ -52,7 +52,7 @@ dependencies {
         transitive = false
     }
 
-    shaded 'io.github.classgraph:classgraph:4.8.193'
+    shaded 'io.github.classgraph:classgraph:4.8.199'
 
     // Example - Dependency descriptor:
     // 'com.google.code.gson:gson:2.8.6' << group: com.google.code.gson, name:gson, version:2.8.6
